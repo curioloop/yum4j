@@ -1,0 +1,361 @@
+/*
+ * Copyright (c) 2025 curioloop. All rights reserved.
+ */
+package com.curioloop.yum4j.linalg.blas;
+
+import static java.lang.Math.max;
+
+/**
+ * DGEES computes for an N-by-N real nonsymmetric matrix A, the
+ * eigenvalues, the real Schur form T, and, optionally, the matrix of
+ * Schur vectors Z. This gives the Schur factorization A = Z*T*Z^T.
+ *
+ * <p>Optionally, it also orders the eigenvalues on the diagonal of the
+ * real Schur form so that selected eigenvalues are at the top left.
+ * The leading columns of Z then form an orthonormal basis for the
+ * invariant subspace corresponding to the selected eigenvalues.</p>
+ *
+ * <p>A matrix is in real Schur form if it is upper quasi-triangular with
+ * 1-by-1 and 2-by-2 blocks. 2-by-2 blocks will be standardized in the form:</p>
+ * <pre>
+ *   [ a  b ]
+ *   [ c  a ]
+ * </pre>
+ * <p>where b*c &lt; 0. The eigenvalues of such a block are a ± sqrt(bc).</p>
+ *
+ * <p>Reference: LAPACK DGEES</p>
+ */
+interface Dgees {
+
+    /**
+     * Generates the orthogonal matrix Q from Hessenberg reduction (LAPACK DORGHR).
+     * Inlined here since it is only used by Schur-based routines (Dgees, Dgeev, Dggev).
+     *
+     * @param n      order of Q
+     * @param ilo    lower balanced index (0-based, from dgebal)
+     * @param ihi    upper balanced index (0-based inclusive, from dgebal)
+     * @param A      matrix from dgehrd (n×n, row-major), overwritten with Q; aOff is the base offset
+     * @param aOff   offset into A
+     * @param lda    leading dimension of A
+     * @param tau    Householder scalars from dgehrd
+     * @param tauOff offset into tau
+     * @param work   workspace (length >= 2*n)
+     * @param workOff offset into work
+     * @param lwork  workspace size (ignored if -1)
+     */
+    static void dorghr(int n, int ilo, int ihi, double[] A, int aOff, int lda,
+                       double[] tau, int tauOff, double[] work, int workOff, int lwork) {
+        if (n <= 1) return;
+        if (lwork < 2 * n && lwork != -1) return;
+
+        // Initialize to identity
+        for (int i = 0; i < n; i++)
+            for (int j = 0; j < n; j++)
+                A[aOff + i * lda + j] = (i == j) ? 1.0 : 0.0;
+
+        for (int i = ihi - 1; i >= ilo; i--) {
+            int m = ihi - i + 1;
+            if (tau[tauOff + i] != 0.0 && m > 2) {
+                int nrow = n - i;
+                int ncol = m - 1;
+                work[workOff] = 1.0;
+                for (int j = 0; j < ncol - 1; j++)
+                    work[workOff + j + 1] = A[aOff + (i + 2 + j) * lda + i];
+                int wOff = workOff + n;
+                for (int ii = 0; ii < nrow; ii++) {
+                    double sum = 0.0;
+                    for (int jj = 0; jj < ncol; jj++)
+                        sum += A[aOff + (i + ii) * lda + (i + 1 + jj)] * work[workOff + jj];
+                    work[wOff + ii] = sum;
+                }
+                for (int ii = 0; ii < nrow; ii++) {
+                    double coeff = -tau[tauOff + i] * work[wOff + ii];
+                    if (coeff != 0.0)
+                        for (int jj = 0; jj < ncol; jj++)
+                            A[aOff + (i + ii) * lda + (i + 1 + jj)] += coeff * work[workOff + jj];
+                }
+            }
+        }
+    }
+
+    /**
+     * Computes the Schur factorization of a general matrix: A = Z*T*Z^T (LAPACK DGEES).
+     * Optionally reorders eigenvalues so that selected ones appear first.
+     *
+     * @param jobvs  'V' to compute Schur vectors Z, 'N' otherwise
+     * @param sort   'S' to reorder eigenvalues, 'N' otherwise
+     * @param select eigenvalue selection function (used if sort='S')
+     * @param n      order of matrix A
+     * @param A      general matrix (n × n, row-major), overwritten with quasi-triangular T
+     * @param lda    leading dimension of A
+     * @param wr     real parts of eigenvalues (output, length n)
+     * @param wi     imaginary parts of eigenvalues (output, length n)
+     * @param vs     Schur vectors (n × n, row-major); used if jobvs='V'
+     * @param ldvs   leading dimension of vs
+     * @param work   workspace
+     * @param workOff offset into work; if lwork=-1, workspace query writes optimal size to work[workOff]
+     * @param lwork  size of work; use -1 for workspace query
+     * @param bwork  boolean workspace (length n); used if sort='S'
+     * @return 0 on success; positive value if QR algorithm failed or reordering failed
+     */
+    static int dgees(char jobvs, char sort, Select select, int n,
+                     double[] A, int lda,
+                     double[] wr, double[] wi,
+                     double[] vs, int ldvs,
+                     double[] work, int workOff, int lwork,
+                     boolean[] bwork) {
+        return dgees(jobvs, sort, select, n, A, 0, lda, wr, 0, wi, 0, vs, 0, ldvs, work, workOff, lwork, bwork);
+    }
+
+    static int dgees(char jobvs, char sort, Select select, int n,
+                     double[] A, int aOff, int lda,
+                     double[] wr, double[] wi,
+                     double[] vs, int vsOff, int ldvs,
+                     double[] work, int workOff, int lwork,
+                     boolean[] bwork) {
+        return dgees(jobvs, sort, select, n, A, aOff, lda, wr, 0, wi, 0, vs, vsOff, ldvs, work, workOff, lwork, bwork);
+    }
+
+    static int dgees(char jobvs, char sort, Select select, int n,
+                     double[] A, int lda,
+                     double[] wr, int wrOff, double[] wi, int wiOff,
+                     double[] vs, int ldvs,
+                     double[] work, int workOff, int lwork,
+                     boolean[] bwork) {
+        return dgees(jobvs, sort, select, n, A, 0, lda, wr, wrOff, wi, wiOff, vs, 0, ldvs, work, workOff, lwork, bwork);
+    }
+
+    static int dgees(char jobvs, char sort, Select select, int n,
+                     double[] A, int aOff, int lda,
+                     double[] wr, int wrOff, double[] wi, int wiOff,
+                     double[] vs, int vsOff, int ldvs,
+                     double[] work, int workOff, int lwork,
+                     boolean[] bwork) {
+
+        boolean wantvs = jobvs == 'V' || jobvs == 'v';
+        boolean wantst = sort == 'S' || sort == 's';
+
+        if (!wantvs && jobvs != 'N' && jobvs != 'n') {
+            return -1;
+        }
+        if (!wantst && sort != 'N' && sort != 'n') {
+            return -2;
+        }
+        if (n < 0) {
+            return -3;
+        }
+        if (lda < max(1, n)) {
+            return -5;
+        }
+        if (ldvs < 1 || (wantvs && ldvs < n)) {
+            return -10;
+        }
+        if (work == null || work.length < 1) {
+            return -14;
+        }
+        if (wantst && (bwork == null || bwork.length < n)) {
+            return -15;
+        }
+
+        int minwrk = 1;
+        int maxwrk = 1;
+        if (n == 0) {
+            if (lwork != -1) work[workOff] = 1;
+            return 0;
+        }
+
+        minwrk = max(10, 3 * n);
+        minwrk = max(minwrk, n + 10);
+        maxwrk = 2 * n + n * Ilaenv.ilaenv(1, "DGEHRD", " ", n, 1, n, 0);
+
+        Dhseqr.dhseqr('S', wantvs ? 'V' : 'N', n, 0, n - 1, A, aOff, lda, wr, wrOff, wi, wiOff, vs, vsOff, ldvs, work, workOff, -1);
+        int hswork = work[workOff] > 0 ? (int) work[workOff] : 1;
+
+        if (!wantvs) {
+            maxwrk = max(maxwrk, n + hswork);
+        } else {
+            maxwrk = max(maxwrk, 2 * n + (n - 1) * Ilaenv.ilaenv(1, "DORGHR", " ", n, 1, n, -1));
+            maxwrk = max(maxwrk, n + hswork);
+        }
+        maxwrk = max(maxwrk, minwrk);
+
+        if (lwork == -1) {
+            work[workOff] = maxwrk;
+            return 0;
+        } else if (lwork < minwrk) {
+            return -14;
+        }
+
+        if (A == null || A.length < aOff + (n - 1) * lda + n) {
+            return -4;
+        }
+        if (wr == null || wr.length < wrOff + n) {
+            return -7;
+        }
+        if (wi == null || wi.length < wiOff + n) {
+            return -8;
+        }
+        if (wantvs && (vs == null || vs.length < vsOff + (n - 1) * ldvs + n)) {
+            return -9;
+        }
+
+        int sdim = 0;
+
+        double smlnum = Math.sqrt(Dlamch.dlamch('S')) / Dlamch.dlamch('P');
+        double bignum = 1.0 / smlnum;
+
+        double anrm = Dlange.dlange('M', n, n, A, aOff, lda);
+        boolean scalea = false;
+        double cscale = 0;
+
+        if (anrm > 0 && anrm < smlnum) {
+            scalea = true;
+            cscale = smlnum;
+        } else if (anrm > bignum) {
+            scalea = true;
+            cscale = bignum;
+        }
+
+        if (scalea) {
+            Dlamv.dlascl('G', 0, 0, anrm, cscale, n, n, A, aOff, lda);
+        }
+
+        Dgebal.dgebal('B', n, A, aOff, lda, work, workOff, work, workOff + lwork - 2);
+        int ilo = (int) work[workOff + lwork - 2];
+        int ihi = (int) work[workOff + lwork - 1];
+
+        int tauOff = workOff + n;
+        int iwrk = workOff + 2 * n;
+        Dgehrd.dgehrd(n, ilo, ihi, A, aOff, lda, work, tauOff, work, iwrk, lwork - (iwrk - workOff));
+
+        if (wantvs) {
+            Dlamv.dlacpy('L', n, n, A, aOff, lda, vs, vsOff, ldvs);
+            Dgees.dorghr(n, ilo, ihi, vs, vsOff, ldvs, work, tauOff, work, iwrk, lwork - (iwrk - workOff));
+        }
+
+        int info = 0;
+        iwrk = workOff + n;
+        int ieval = Dhseqr.dhseqr('S', wantvs ? 'V' : 'N', n, ilo, ihi,
+            A, aOff, lda, wr, wrOff, wi, wiOff, vs, vsOff, ldvs, work, iwrk, lwork - (iwrk - workOff));
+
+        if (ieval > 0) {
+            info = ieval;
+        }
+
+        if (wantst && info == 0) {
+            if (scalea) {
+                Dlamv.dlascl('G', 0, 0, cscale, anrm, n, 1, wr, wrOff, 1);
+                Dlamv.dlascl('G', 0, 0, cscale, anrm, n, 1, wi, wiOff, 1);
+            }
+
+            for (int i = 0; i < n; i++) {
+                bwork[i] = select.select(wr[wrOff + i], wi[wiOff + i]);
+            }
+
+            int[] trsenIwork = new int[2];
+            boolean trsenOk = Dtrsen.dtrsen(Dtrsen.NO_COND, wantvs, bwork, n,
+                    A, aOff, lda, vs, vsOff, ldvs, wr, wrOff, wi, wiOff, work, lwork - (iwrk - workOff), trsenIwork, 1);
+
+            if (!trsenOk) {
+                info = n + 1;
+            }
+
+            sdim = trsenIwork[1];
+        }
+
+        if (wantvs) {
+            Dgebak.dgebak('P', BLAS.Side.Right, n, ilo, ihi, work, workOff, n, vs, vsOff, ldvs);
+        }
+
+        if (scalea) {
+            Dlamv.dlascl('H', 0, 0, cscale, anrm, n, n, A, aOff, lda);
+            BLAS.dcopy(n, A, aOff, lda + 1, wr, wrOff, 1);
+
+            if (cscale == smlnum) {
+                int i1, i2;
+                if (ieval > 0) {
+                    i1 = ieval + 1;
+                    i2 = ihi - 1;
+                    Dlamv.dlascl('G', 0, 0, cscale, anrm, ilo - 1, 1, wi, wiOff, 1);
+                } else if (wantst) {
+                    i1 = 1;
+                    i2 = n - 1;
+                } else {
+                    i1 = ilo;
+                    i2 = ihi - 1;
+                }
+
+                int inxt = i1 - 2;
+                for (int i = i1 - 1; i <= i2 - 1; i++) {
+                    if (i < inxt) {
+                        continue;
+                    }
+                    if (wi[wiOff + i] == 0) {
+                        inxt = i + 1;
+                    } else {
+                        if (A[aOff + (i + 1) * lda + i] == 0) {
+                            wi[wiOff + i] = 0;
+                            wi[wiOff + i + 1] = 0;
+                        } else if (A[aOff + (i + 1) * lda + i] != 0 && A[aOff + i * lda + i + 1] == 0) {
+                            wi[wiOff + i] = 0;
+                            wi[wiOff + i + 1] = 0;
+                            if (i > 0) {
+                                BLAS.dswap(i, A, aOff + i, 1, A, aOff + i + 1, 1);
+                            }
+                            if (i < n - 2) {
+                                BLAS.dswap(n - i - 2, A, aOff + i * lda + i + 2, lda, A, aOff + (i + 1) * lda + i + 2, lda);
+                            }
+                            if (wantvs) {
+                                BLAS.dswap(n, vs, vsOff + i, 1, vs, vsOff + i + 1, 1);
+                            }
+                            A[aOff + i * lda + i + 1] = A[aOff + (i + 1) * lda + i];
+                            A[aOff + (i + 1) * lda + i] = 0;
+                        }
+                        inxt = i + 2;
+                    }
+                }
+            }
+
+            Dlamv.dlascl('G', 0, 0, cscale, anrm, n - ieval, 1, wi, wiOff + ieval, 1);
+        }
+
+        if (wantst && info == 0) {
+            int sdimCheck = 0;
+            boolean lastsl = true;
+            boolean lst2sl = true;
+            int ip = 0;
+            for (int i = 0; i < n; i++) {
+                boolean cursl = select.select(wr[wrOff + i], wi[wiOff + i]);
+                if (wi[wiOff + i] == 0) {
+                    if (cursl) {
+                        sdimCheck += 1;
+                    }
+                    ip = 0;
+                    if (cursl && !lastsl) {
+                        info = n + 2;
+                    }
+                } else {
+                    if (ip == 1) {
+                        cursl = cursl || lastsl;
+                        lastsl = cursl;
+                        if (cursl) {
+                            sdimCheck += 2;
+                        }
+                        ip = -1;
+                        if (cursl && !lst2sl) {
+                            info = n + 2;
+                        }
+                    } else {
+                        ip = 1;
+                    }
+                }
+                lst2sl = lastsl;
+                lastsl = cursl;
+            }
+            sdim = sdimCheck;
+        }
+
+        work[workOff] = sdim;
+        return info;
+    }
+}

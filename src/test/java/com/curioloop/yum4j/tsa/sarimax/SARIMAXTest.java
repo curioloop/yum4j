@@ -1,0 +1,1913 @@
+package com.curioloop.yum4j.tsa.sarimax;
+
+import com.curioloop.yum4j.kalman.filter.FilterResult;
+import com.curioloop.yum4j.kalman.filter.FilterSpec;
+import com.curioloop.yum4j.kalman.filter.KalmanFilter;
+import com.curioloop.yum4j.kalman.init.StateInitialization;
+import com.curioloop.yum4j.kalman.mle.MLECovariance;
+import com.curioloop.yum4j.kalman.model.StateSpaceModel;
+import com.curioloop.yum4j.kalman.smooth.SmootherResult;
+import com.curioloop.yum4j.kalman.smooth.SmootherSpec;
+import com.curioloop.yum4j.optim.Optimization;
+import org.junit.jupiter.api.Test;
+
+import java.util.Arrays;
+import java.util.Random;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class SARIMAXTest {
+
+    private static final double TOL = 1e-6;
+    private static final FilterSpec LIKELIHOOD_SPEC = FilterSpec.full().without(
+        FilterSpec.Storage.FORECAST,
+        FilterSpec.Storage.PREDICTED_STATE,
+        FilterSpec.Storage.FILTERED_STATE,
+        FilterSpec.Storage.KALMAN_GAIN);
+
+    @Test
+    void testSpecDefaultsRemainEnabledWhenAddingExactDiffuse() {
+        SARIMAXSpec spec = SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), new double[]{1.0, 2.0, 3.0})
+            .include(SARIMAXOption.USE_EXACT_DIFFUSE)
+            .build();
+
+        assertTrue(spec.hasOption(SARIMAXOption.ENFORCE_STATIONARITY));
+        assertTrue(spec.hasOption(SARIMAXOption.ENFORCE_INVERTIBILITY));
+        assertTrue(spec.hasOption(SARIMAXOption.USE_EXACT_DIFFUSE));
+    }
+
+    @Test
+    void testAr1LogLikelihoodMatchesDirectFilter() {
+        double[] y = {1.0, 0.5, -0.3, 0.8, 0.2, -0.1};
+        SARIMAX model = new SARIMAX(SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), y).build());
+        double[] params = {0.6, 0.5};
+
+        StateSpaceModel direct = buildAr1StateSpace(params[0], params[1], y);
+        FilterResult directFilter = KalmanFilter.filter(direct, StateInitialization.stationary(direct), null, LIKELIHOOD_SPEC);
+
+        assertEquals(directFilter.logLikelihood(), model.logLikelihood(params), TOL);
+        assertArrayEquals(directFilter.logLikelihoodObs, model.logLikelihoodObs(params), TOL);
+    }
+
+    @Test
+    void testAr1MeasurementErrorLogLikelihoodMatchesDirectFilter() {
+        double[] y = {1.0, 0.5, -0.3, 0.8, 0.2, -0.1};
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), y)
+                .measurementError(true)
+                .build());
+        double[] params = {0.6, 0.15, 0.5};
+
+        StateSpaceModel direct = buildAr1MeasurementErrorStateSpace(params[0], params[1], params[2], y);
+        FilterResult directFilter = KalmanFilter.filter(direct, StateInitialization.stationary(direct), null, LIKELIHOOD_SPEC);
+
+        assertArrayEquals(params, model.transformParams(model.untransformParams(params)), 1e-8);
+        assertEquals(directFilter.logLikelihood(), model.logLikelihood(params), TOL);
+        assertArrayEquals(directFilter.logLikelihoodObs, model.logLikelihoodObs(params), TOL);
+    }
+
+    @Test
+    void testIntegratedRandomWalkAnalyticComplexStepScoreObsMatchesNumericSurface() {
+        double[] innovations = generateAr1(0.0, 0.3, 48, 20260511L);
+        double[] y = new double[innovations.length];
+        double level = 0.0;
+        for (int i = 0; i < innovations.length; i++) {
+            level += innovations[i];
+            y[i] = level;
+        }
+
+        SARIMAX model = new SARIMAX(SARIMAXSpec.builder(ARIMAOrder.of(0, 1, 0), y).build());
+        double[] params = {0.3};
+
+        double[] analytic = model.analyticComplexStepScoreObsForTesting(params);
+        assertNotNull(analytic);
+        double[] numeric = model.numericScoreObsForTesting(params);
+
+        assertArrayAllClose(numeric, analytic, 1e-3, 1e-3);
+    }
+
+    @Test
+    void testIntegratedMa1AnalyticComplexStepScoreObsMatchesNumericSurface() {
+        double[] shocks = generateAr1(0.0, 0.2, 64, 20260512L);
+        double theta = 0.45;
+        double[] y = new double[shocks.length];
+        double level = 0.0;
+        double previousShock = 0.0;
+        for (int i = 0; i < shocks.length; i++) {
+            double innovation = shocks[i] + theta * previousShock;
+            level += innovation;
+            y[i] = level;
+            previousShock = shocks[i];
+        }
+
+        SARIMAX model = new SARIMAX(SARIMAXSpec.builder(ARIMAOrder.of(0, 1, 1), y).build());
+        double[] params = {theta, 0.2};
+
+        double[] analytic = model.analyticComplexStepScoreObsForTesting(params);
+        assertNotNull(analytic);
+        double[] numeric = model.numericScoreObsForTesting(params);
+
+        assertArrayAllClose(numeric, analytic, 1e-3, 1e-3);
+    }
+
+    @Test
+    void testAr1ComplexEvaluatorMatchesRealLikelihoodSurface() {
+        double[] y = {1.0, 0.5, -0.3, 0.8, 0.2, -0.1};
+        SARIMAX model = new SARIMAX(SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), y).build());
+        double[] params = {0.6, 0.5};
+
+        assertEquals(model.logLikelihood(params), model.complexLogLikelihood(params), TOL);
+        assertArrayEquals(model.logLikelihoodObs(params), model.complexLogLikelihoodObs(params), TOL);
+    }
+
+    @Test
+    void testAirlineExactDiffuseLogLikelihoodMatchesReference() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(0, 1, 1), endog)
+                .seasonalOrder(SeasonalOrder.of(0, 1, 1, 12))
+                .include(SARIMAXOption.USE_EXACT_DIFFUSE)
+                .build());
+
+        double[] params = {
+            air2.paramsMa()[0],
+            air2.paramsSeasonalMa()[0],
+            air2.paramsVariance()[0]
+        };
+
+        assertEquals(232.750285890625, model.logLikelihood(params), 1e-2);
+    }
+
+    @Test
+    void testAirlineDefaultLikelihoodAndInformationCriteriaMatchStatsmodelsReference() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(0, 1, 1), endog)
+                .seasonalOrder(SeasonalOrder.of(0, 1, 1, 12))
+                .build());
+
+        double[] params = {
+            air2.paramsMa()[0],
+            air2.paramsSeasonalMa()[0],
+            air2.paramsVariance()[0]
+        };
+
+        FilterResult filterResult = model.filter(params, FilterSpec.full());
+        SARIMAXResults results = newResults(model, params, filterResult);
+
+        assertEquals(air2.loglike(), results.logLikelihood(), 1e-4);
+        assertEquals(air2.aic(), results.aic(), 1e-3);
+        assertEquals(air2.bic(), results.bic(), 1e-3);
+    }
+
+    @Test
+    void testAirlineFitMatchesStatsmodelsReference() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(0, 1, 1), endog)
+                .seasonalOrder(SeasonalOrder.of(0, 1, 1, 12))
+                .build());
+
+        SARIMAXResults results = model.fit();
+        double[] expected = {
+            air2.paramsMa()[0],
+            air2.paramsSeasonalMa()[0],
+            air2.paramsVariance()[0]
+        };
+
+        assertArrayEquals(expected, results.params(), 2e-3);
+        assertEquals(air2.loglike(), results.logLikelihood(), 2e-3);
+        assertEquals(air2.aic(), results.aic(), 2e-2);
+        assertEquals(air2.bic(), results.bic(), 2e-2);
+    }
+
+    @Test
+    void testAirlineBseDefaultAndOpgMatchStatsmodelsReference() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(0, 1, 1), endog)
+                .seasonalOrder(SeasonalOrder.of(0, 1, 1, 12))
+                .build());
+
+        SARIMAXResults results = model.fit();
+        double[] expectedOpg = airlineBseOpg(air2);
+
+        assertArrayAllClose(expectedOpg, results.bseOpg(), 6e-3, 1e-5);
+        assertArrayAllClose(expectedOpg, results.bse(), 6e-3, 1e-5);
+        assertArrayAllClose(expectedOpg, results.bseDefault(), 6e-3, 1e-5);
+    }
+
+    @Test
+    void testAirlineBseOimMatchStatsmodelsReference() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(0, 1, 1), endog)
+                .seasonalOrder(SeasonalOrder.of(0, 1, 1, 12))
+                .build());
+
+        SARIMAXResults results = model.fit();
+        double[] expectedOim = airlineBseOim(air2);
+
+        assertArrayAllClose(expectedOim, results.bseOim(), 1.5e-2, 1e-5);
+    }
+
+    @Test
+    void testAirlineCovParamsOimDiagonalMatchesStatsmodelsReference() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(0, 1, 1), endog)
+                .seasonalOrder(SeasonalOrder.of(0, 1, 1, 12))
+                .build());
+
+        SARIMAXResults results = model.fit();
+
+        assertArrayAllClose(airlineBseOim(air2), diagonalStandardErrors(results.covParamsOim()), 1.5e-2, 1e-5);
+    }
+
+    @Test
+    void testAirlineApproxMatchStatsmodelsReference() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(0, 1, 1), endog)
+                .seasonalOrder(SeasonalOrder.of(0, 1, 1, 12))
+                .build());
+
+        SARIMAXResults results = model.fit(SARIMAXFitOptions.builder()
+            .covarianceType(MLECovariance.APPROX)
+            .build());
+
+        assertEquals("approx", results.covType());
+        assertArrayAllClose(airlineBseOim(air2), results.bseApprox(), 8e-3, 1e-5);
+        assertArrayAllClose(results.bseApprox(), diagonalStandardErrors(results.covParamsApprox()), 1e-12, 1e-12);
+        assertArrayAllClose(results.bseApprox(), results.bse(), 0.0, 0.0);
+        assertArrayAllClose(results.covParamsApprox(), results.covParams(), 0.0, 0.0);
+    }
+
+    @Test
+    void testAirlineRobustApproxMatchStatsmodelsReference() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(0, 1, 1), endog)
+                .seasonalOrder(SeasonalOrder.of(0, 1, 1, 12))
+                .build());
+
+        SARIMAXResults results = model.fit();
+
+        assertAllFinite(results.bseRobustApprox());
+        assertAllFinite(results.covParamsRobustApprox());
+    }
+
+    @Test
+    void testFitOptimizationMatchesFinalLikelihoodAndSolution() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(0, 1, 1), endog)
+                .seasonalOrder(SeasonalOrder.of(0, 1, 1, 12))
+                .build());
+
+        SARIMAXResults results = model.fit();
+        Optimization optimization = results.optimization();
+
+        assertNotNull(optimization);
+        assertNotNull(optimization.solution());
+        assertTrue(optimization.status().converged());
+        assertArrayAllClose(results.unconstrainedParams(), optimization.solution(), 1e-10, 1e-10);
+        assertEquals(-results.logLikelihood(), optimization.cost(), 1e-6);
+    }
+
+    @Test
+    void testWpiStationaryFitMatchesStatsmodelsReference() {
+        WpiArimaReference reference = loadWpiArimaReference("wpi1_stationary");
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 1, 1), reference.endog())
+                .trendPowers(0)
+                .build());
+        double intercept = (1.0 - reference.paramsAr()[0]) * reference.paramsMean()[0];
+        double[] expected = {
+            intercept,
+            reference.paramsAr()[0],
+            reference.paramsMa()[0],
+            reference.paramsVariance()[0]
+        };
+
+        assertEquals(reference.loglike(), model.logLikelihood(expected), 1e-4);
+
+        SARIMAXResults results = model.fit();
+
+        assertArrayAllClose(expected, results.params(), 5e-3, 1e-3);
+        assertEquals(reference.loglike(), results.logLikelihood(), 5e-4);
+        assertEquals(reference.aic(), results.aic(), 5e-3);
+        assertEquals(reference.bic(), results.bic(), 5e-3);
+    }
+
+    @Test
+    void testAirlineBseAndCovParamsOimMatchStatsmodelsReference() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = airlineModel(endog);
+
+        SARIMAXResults results = model.fit();
+
+        assertArrayAllClose(airlineBseOim(air2), results.bseOim(), 1.5e-2, 1e-5);
+        assertArrayAllClose(airlineBseOim(air2), diagonalStandardErrors(results.covParamsOim()), 1.5e-2, 1e-5);
+    }
+
+    @Test
+    void testAirlineBseAndCovParamsApproxMatchStatsmodelsReference() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = airlineModel(endog);
+
+        SARIMAXResults results = model.fit(SARIMAXFitOptions.builder()
+            .covarianceType(MLECovariance.APPROX)
+            .build());
+
+        assertEquals("approx", results.covType());
+        assertArrayAllClose(airlineBseOim(air2), results.bseApprox(), 8e-3, 1e-5);
+        assertArrayAllClose(results.bseApprox(), diagonalStandardErrors(results.covParamsApprox()), 1e-12, 1e-12);
+        assertArrayAllClose(results.bseApprox(), results.bse(), 0.0, 0.0);
+        assertArrayAllClose(results.covParamsApprox(), results.covParams(), 0.0, 0.0);
+    }
+
+    @Test
+    void testAirlineBseAndCovParamsOpgMatchStatsmodelsReference() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = airlineModel(endog);
+
+        SARIMAXResults results = model.fit();
+
+        assertArrayAllClose(airlineBseOpg(air2), results.bse(), 6e-3, 1e-5);
+        assertArrayAllClose(airlineBseOpg(air2), results.bseOpg(), 6e-3, 1e-5);
+        assertArrayAllClose(airlineBseOpg(air2), diagonalStandardErrors(results.covParams()), 6e-3, 1e-5);
+        assertArrayAllClose(airlineBseOpg(air2), diagonalStandardErrors(results.covParamsOpg()), 6e-3, 1e-5);
+        assertArrayAllClose(results.bse(), results.bseDefault(), 0.0, 0.0);
+        assertArrayAllClose(results.bseOpg(), results.bseDefault(), 0.0, 0.0);
+        assertArrayAllClose(results.covParams(), results.covParamsDefault(), 0.0, 0.0);
+        assertArrayAllClose(results.covParamsOpg(), results.covParamsDefault(), 0.0, 0.0);
+    }
+
+    @Test
+    void testAirlineDefaultInferenceMatchesStatsmodelsReference() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = airlineModel(endog);
+
+        SARIMAXResults results = model.fit();
+
+        assertEquals("opg", results.covType());
+        assertArrayEquals(new String[]{"ma.L1", "seasonalMa.L12", "sigma2"}, results.parameterNames());
+        assertArrayAllClose(results.zvalues(), results.tvalues(), 0.0, 0.0);
+        assertArrayAllClose(airlineBseOpg(air2), results.bse(), 6e-3, 1e-5);
+        for (double value : results.zvalues()) {
+            assertTrue(Double.isFinite(value));
+        }
+        for (double value : results.pvalues()) {
+            assertTrue(value >= 0.0 && value <= 1.0);
+        }
+        for (double[] interval : results.confInt()) {
+            assertTrue(interval[0] < interval[1]);
+        }
+    }
+
+    @Test
+    void testAirlineFitCovarianceTypeSelectionRoutesDefaultInferenceSurface() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = airlineModel(endog);
+
+        SARIMAXResults oim = model.fit(SARIMAXFitOptions.builder().covarianceType(MLECovariance.OIM).build());
+        assertEquals("oim", oim.covType());
+        assertArrayAllClose(airlineBseOim(air2), oim.bse(), 1.5e-2, 1e-5);
+        assertArrayAllClose(oim.covParamsOim(), oim.covParamsDefault(), 0.0, 0.0);
+        assertArrayAllClose(oim.bseOim(), oim.bseDefault(), 0.0, 0.0);
+
+        SARIMAXResults approx = model.fit(SARIMAXFitOptions.builder().covarianceType(MLECovariance.APPROX).build());
+        assertEquals("approx", approx.covType());
+        assertArrayAllClose(airlineBseOim(air2), approx.bse(), 8e-3, 1e-5);
+        assertArrayAllClose(approx.covParamsApprox(), approx.covParamsDefault(), 0.0, 0.0);
+        assertArrayAllClose(approx.bseApprox(), approx.bseDefault(), 0.0, 0.0);
+
+        SARIMAXResults robust = model.fit(SARIMAXFitOptions.builder().covarianceType(MLECovariance.ROBUST).build());
+        assertEquals("robust", robust.covType());
+        assertAllFinite(robust.covParams());
+        assertArrayAllClose(robust.covParamsRobustOim(), robust.covParamsDefault(), 0.0, 0.0);
+        assertArrayAllClose(robust.bseRobustOim(), robust.bseDefault(), 0.0, 0.0);
+
+        SARIMAXResults robustApprox = model.fit(SARIMAXFitOptions.builder().covarianceType(MLECovariance.ROBUST_APPROX).build());
+        assertEquals("robust_approx", robustApprox.covType());
+        assertAllFinite(robustApprox.covParams());
+        assertArrayAllClose(robustApprox.covParamsRobustApprox(), robustApprox.covParamsDefault(), 0.0, 0.0);
+        assertArrayAllClose(robustApprox.bseRobustApprox(), robustApprox.bseDefault(), 0.0, 0.0);
+    }
+
+    @Test
+    void testAirlineSummaryContainsStatsmodelsStyleCoreSections() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = airlineModel(endog);
+
+        SARIMAXResults results = model.fit();
+        String summary = results.summary();
+
+        assertTrue(summary.contains("Statespace Model Results"));
+        assertTrue(summary.contains("Model:"));
+        assertTrue(summary.contains("Covariance Type:"));
+        assertTrue(summary.contains("opg"));
+        assertTrue(summary.contains("Log Likelihood:"));
+        assertTrue(summary.contains("AIC:"));
+        assertTrue(summary.contains("BIC:"));
+        assertTrue(summary.contains("HQIC:"));
+        for (String parameterName : results.parameterNames()) {
+            assertTrue(summary.contains(parameterName));
+        }
+    }
+
+    @Test
+    void testAirlineBseAndCovParamsRobustOimAreFinite() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = airlineModel(endog);
+
+        SARIMAXResults results = model.fit();
+
+        assertAllFinite(results.bseRobustOim());
+        assertAllFinite(results.covParamsRobustOim());
+    }
+
+    @Test
+    void testAirlineBseAndCovParamsRobustApproxAreFinite() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = airlineModel(endog);
+
+        SARIMAXResults results = model.fit();
+
+        assertAllFinite(results.bseRobustApprox());
+        assertAllFinite(results.covParamsRobustApprox());
+        assertArrayAllClose(results.bseRobustOim(), results.bseRobust(), 0.0, 0.0);
+        assertArrayAllClose(results.covParamsRobustOim(), results.covParamsRobust(), 0.0, 0.0);
+    }
+
+    @Test
+    void testWpiMeasurementErrorFitUsesStatsmodelsSeries() {
+        double[] endog = diff(loadWpiSeries().endog());
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), endog)
+                .measurementError(true)
+                .build());
+
+        SARIMAXResults results = model.fit();
+
+        assertEquals(3, results.params().length);
+        assertTrue(Double.isFinite(results.logLikelihood()));
+        assertTrue(results.params()[1] > 0.0);
+        assertTrue(results.params()[2] > 0.0);
+    }
+
+    @Test
+    void testAr1ConcentrateScaleLikelihoodMatchesConcentratedFilterFormula() {
+        double[] endog = generateAr1(0.7, 0.35, 80, 20260504L);
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), endog)
+                .concentrateScale(true)
+                .build());
+        double[] params = {0.55};
+
+        FilterResult filterResult = model.filter(params, FilterSpec.full());
+        int burn = model.likelihoodBurn();
+        double expectedScale = concentratedScale(filterResult, endog, burn);
+        double[] expectedLoglikeObs = concentratedLogLikelihoodObs(filterResult, endog, burn, expectedScale);
+
+        assertArrayEquals(params, model.transformParams(model.untransformParams(params)), 1e-8);
+        assertArrayAllClose(expectedLoglikeObs, model.logLikelihoodObs(params), 1e-10, 1e-10);
+        assertEquals(Arrays.stream(expectedLoglikeObs).sum(), model.logLikelihood(params), 1e-10);
+
+        SARIMAXResults results = newResults(model, params, filterResult);
+
+        assertEquals(expectedScale, results.scale(), 1e-10);
+        assertArrayAllClose(expectedLoglikeObs, results.logLikelihoodObs(), 1e-10, 1e-10);
+        assertEquals(filterResult.forecastErrorCov(0, 0, 0) * expectedScale, results.filterResult().forecastErrorCov(0, 0, 0), 1e-10);
+    }
+
+    @Test
+    void testWpiConcentrateScaleMatchesStatsmodelsScenario() {
+        double[] endog = diff(loadWpiSeries().endog());
+
+        assertConcentratedScaleMatchesUnconcentrated(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), endog).build(),
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), endog).concentrateScale(true).build(),
+            1,
+            1e-5);
+    }
+
+    @Test
+    void testWpiMeasurementErrorConcentrateScaleMatchesStatsmodelsScenario() {
+        double[] endog = diff(loadWpiSeries().endog());
+
+        assertConcentratedScaleMatchesUnconcentrated(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), endog).measurementError(true).build(),
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), endog).measurementError(true).concentrateScale(true).build(),
+            2,
+            1e-3);
+    }
+
+    @Test
+    void testConcentratedScaleObservedInformationFailsFastAndApproxPathStaysExplicit() {
+        double[] endog = generateAr1(0.7, 0.35, 80, 20260514L);
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), endog)
+                .concentrateScale(true)
+                .build());
+        double[] params = {0.55};
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+            () -> model.covarianceFromObservedInformation(params));
+
+        assertTrue(error.getMessage().contains("covarianceFromApproximateInformation"));
+        for (double value : model.covarianceFromApproximateInformation(params)) {
+            assertTrue(Double.isFinite(value));
+        }
+        for (double value : model.robustCovarianceFromApproximateInformation(params)) {
+            assertTrue(Double.isFinite(value));
+        }
+    }
+
+    @Test
+    void testConcentratedScaleFitWithOimCovarianceTypeFailsOnDefaultCovarianceSurface() {
+        double[] endog = generateAr1(0.7, 0.35, 80, 20260515L);
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), endog)
+                .concentrateScale(true)
+                .build());
+
+        SARIMAXResults results = model.fit(SARIMAXFitOptions.builder()
+            .covarianceType(MLECovariance.OIM)
+            .build());
+
+        assertEquals("oim", results.covType());
+        IllegalStateException error = assertThrows(IllegalStateException.class, results::covParams);
+        assertTrue(error.getMessage().contains("covarianceFromApproximateInformation"));
+    }
+
+    @Test
+    void testFriedmanStateRegressionMatchesStatsmodelsReferenceScenario() {
+        FriedmanMleReference reference = loadFriedmanMleReference();
+        double[][] exog = scale(withIntercept(reference.exog()), 0.1);
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 1), reference.endog())
+                .exog(exog)
+                .mleRegression(false)
+                .build());
+        double[] expected = {
+            reference.paramsAr()[0],
+            reference.paramsMa()[0],
+            reference.paramsVariance()[0]
+        };
+
+        FilterResult filterResult = model.filter(expected, FilterSpec.full());
+        int last = reference.endog().length - 1;
+
+        assertArrayAllClose(expected, newResults(model, expected, filterResult).params(), 0.0, 0.0);
+        assertArrayAllClose(reference.paramsExog(), new double[]{
+            filterResult.filteredState(filterResult.kStates - 2, last) / 10.0,
+            filterResult.filteredState(filterResult.kStates - 1, last) / 10.0
+        }, 4.0, 0.0);
+    }
+
+    @Test
+    void testAirlineMaFitMatchesStatsmodelsReference() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = airlineModel(endog);
+        double[] expected = {
+            air2.paramsMa()[0],
+            air2.paramsSeasonalMa()[0],
+            air2.paramsVariance()[0]
+        };
+
+        SARIMAXResults results = model.fit();
+
+        assertArrayAllClose(expected, results.params(), 2e-3, 1e-3);
+        assertEquals(air2.loglike(), results.logLikelihood(), 2e-3);
+        assertEquals(air2.aic(), results.aic(), 2e-2);
+        assertEquals(air2.bic(), results.bic(), 2e-2);
+    }
+
+    @Test
+    void testWpiArSmoothingUsesStatsmodelsSeries() {
+        CoverageRow row = loadCoverageRow("arima wpi, arima(3,0,0) noconstant vce(oim)");
+        SARIMAX model = new SARIMAX(SARIMAXSpec.builder(ARIMAOrder.of(3, 0, 0), loadWpiSeries().endog()).build());
+
+        SmootherResult smooth = model.smooth(row.params(), SmootherSpec.conventional());
+
+        assertEquals(loadWpiSeries().endog().length, smooth.nobs);
+        for (int t = 0; t < smooth.nobs; t++) {
+            assertTrue(Double.isFinite(smooth.smoothedState(0, t)));
+        }
+    }
+
+    @Test
+    void testAirlineSmoothingUsesStatsmodelsSeries() {
+        Air2Reference air2 = loadAir2Reference();
+        double[] endog = Arrays.stream(air2.data()).map(Math::log).toArray();
+        SARIMAX model = airlineModel(endog);
+        double[] params = {
+            air2.paramsMa()[0],
+            air2.paramsSeasonalMa()[0],
+            air2.paramsVariance()[0]
+        };
+
+        SmootherResult smooth = model.smooth(params, SmootherSpec.conventional());
+
+        assertEquals(endog.length, smooth.nobs);
+        for (int t = 0; t < smooth.nobs; t++) {
+            assertTrue(Double.isFinite(smooth.smoothedState(0, t)));
+        }
+    }
+
+    @Test
+    void testFriedmanMleFitMatchesStatsmodelsReference() {
+        FriedmanMleReference reference = loadFriedmanMleReference();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 1), reference.endog())
+                .exog(withIntercept(reference.exog()))
+                .build());
+
+        double[] expected = {
+            reference.paramsExog()[0],
+            reference.paramsExog()[1],
+            reference.paramsAr()[0],
+            reference.paramsMa()[0],
+            reference.paramsVariance()[0]
+        };
+
+        assertEquals(reference.loglike(), model.logLikelihood(expected), 1e-3);
+
+        SARIMAXResults results = model.fit();
+
+        assertArrayAllClose(expected, results.params(), 5e-2, 1e-3);
+        assertEquals(reference.loglike(), results.logLikelihood(), 5e-2);
+        assertEquals(reference.aic(), results.aic(), 1e-1);
+        assertEquals(reference.bic(), results.bic(), 1e-1);
+    }
+
+    @Test
+    void testFriedmanPredictAndForecastMatchStatsmodelsReference() {
+        FriedmanPredictReference reference = loadFriedmanPredictReference();
+        double[] params = {
+            reference.paramsExog()[0],
+            reference.paramsExog()[1],
+            reference.paramsAr()[0],
+            reference.paramsMa()[0],
+            reference.paramsVariance()[0]
+        };
+
+        SARIMAX fullModel = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 1), reference.endog())
+                .exog(withIntercept(reference.exog()))
+                .build());
+        FilterResult fullFilter = fullModel.filter(params, FilterSpec.full());
+        SARIMAXResults fullResults = newResults(fullModel, params, fullFilter);
+
+        SARIMAXPrediction staticPrediction = fullResults.predict(0, reference.endog().length - 1, false, null);
+        SARIMAXPrediction dynamicPrediction = fullResults.predict(Math.max(0, reference.dynamicPredictStart() - 1), reference.endog().length - 1, true, null);
+
+        assertArrayClose(reference.predict(), staticPrediction.mean(), 2e-3);
+        assertArrayClose(reference.dynamicPredictTail(), predictionTail(dynamicPrediction, reference.dynamicPredictStart()), 2e-3);
+
+        SARIMAX trainModel = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 1), reference.trainEndog())
+                .exog(withIntercept(reference.trainExog()))
+                .build());
+        FilterResult trainFilter = trainModel.filter(params, FilterSpec.full());
+        SARIMAXResults trainResults = newResults(trainModel, params, trainFilter);
+
+        double[][] futureExog = withIntercept(reference.futureExog());
+        int forecastEnd = reference.trainEndog().length + reference.forecastHorizon() - 1;
+        SARIMAXPrediction forecast = trainResults.forecast(reference.forecastHorizon(), futureExog);
+        SARIMAXPrediction dynamicForecast = trainResults.predict(Math.max(0, reference.dynamicForecastStart() - 1), forecastEnd, true, futureExog);
+
+        assertArrayClose(reference.forecastTail(), forecast.mean(), 2e-3);
+        assertArrayClose(reference.dynamicForecastTail(), predictionTail(dynamicForecast, reference.dynamicForecastStart()), 2e-3);
+    }
+
+    @Test
+    void testWpiStationaryTrendMappingMatchesStatsmodelsReference() {
+        WpiArimaReference reference = loadWpiArimaReference("wpi1_stationary");
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 1, 1), reference.endog())
+                .trendPowers(0)
+                .build());
+
+        double intercept = (1.0 - reference.paramsAr()[0]) * reference.paramsMean()[0];
+        double[] expected = {
+            intercept,
+            reference.paramsAr()[0],
+            reference.paramsMa()[0],
+            reference.paramsVariance()[0]
+        };
+
+        assertEquals(reference.loglike(), model.logLikelihood(expected), 1e-4);
+        FilterResult filterResult = model.filter(expected, FilterSpec.full());
+        SARIMAXResults results = newResults(model, expected, filterResult);
+        assertEquals(reference.aic(), results.aic(), 1e-3);
+        assertEquals(reference.bic(), results.bic(), 1e-3);
+    }
+
+    @Test
+    void testWpiSeasonalDenseZeroPaddedLikelihoodMatchesStatsmodelsReference() {
+        WpiArimaReference reference = loadWpiArimaReference("wpi1_seasonal");
+        double[] endog = Arrays.stream(reference.endog()).map(Math::log).toArray();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 1, 4), endog)
+                .trendPowers(0)
+                .build());
+
+        double intercept = (1.0 - reference.paramsAr()[0]) * reference.paramsMean()[0];
+        double[] expected = {
+            intercept,
+            reference.paramsAr()[0],
+            reference.paramsMa()[0],
+            0.0,
+            0.0,
+            reference.paramsMa()[1],
+            reference.paramsVariance()[0]
+        };
+
+        assertEquals(reference.loglike(), model.logLikelihood(expected), 1e-4);
+    }
+
+    @Test
+    void testWpiSeasonalSparseMaLikelihoodMatchesStatsmodelsReference() {
+        WpiArimaReference reference = loadWpiArimaReference("wpi1_seasonal");
+        double[] endog = Arrays.stream(reference.endog()).map(Math::log).toArray();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 1, 4), endog)
+                .movingAverageLags(1, 4)
+                .trendPowers(0)
+                .build());
+
+        double intercept = (1.0 - reference.paramsAr()[0]) * reference.paramsMean()[0];
+        double[] expected = {
+            intercept,
+            reference.paramsAr()[0],
+            reference.paramsMa()[0],
+            reference.paramsMa()[1],
+            reference.paramsVariance()[0]
+        };
+
+        assertEquals(reference.loglike(), model.logLikelihood(expected), 1e-4);
+        FilterResult filterResult = model.filter(expected, FilterSpec.full());
+        SARIMAXResults results = newResults(model, expected, filterResult);
+        assertEquals(reference.aic(), results.aic(), 1e-3);
+        assertEquals(reference.bic(), results.bic(), 1e-3);
+    }
+
+    @Test
+    void testWpiSeasonalSparseMaFitMatchesStatsmodelsReference() {
+        WpiArimaReference reference = loadWpiArimaReference("wpi1_seasonal");
+        double[] endog = Arrays.stream(reference.endog()).map(Math::log).toArray();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 1, 4), endog)
+                .movingAverageLags(1, 4)
+                .trendPowers(0)
+                .build());
+
+        SARIMAXResults results = model.fit();
+
+        double intercept = (1.0 - reference.paramsAr()[0]) * reference.paramsMean()[0];
+        double[] expected = {
+            intercept,
+            reference.paramsAr()[0],
+            reference.paramsMa()[0],
+            reference.paramsMa()[1],
+            reference.paramsVariance()[0]
+        };
+
+        assertArrayClose(expected, results.params(), 5e-3);
+        assertEquals(reference.loglike(), results.logLikelihood(), 5e-4);
+        assertEquals(reference.aic(), results.aic(), 5e-3);
+        assertEquals(reference.bic(), results.bic(), 5e-3);
+    }
+
+    @Test
+    void testWpiApproximateDiffuseVarianceMatchesStatsmodelsReference() {
+        WpiArimaReference reference = loadWpiArimaReference("wpi1_diffuse");
+        double initialVariance = loadFixtureScalar("wpi1_diffuse", "initial_variance");
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 1, 1), reference.endog())
+                .trendPowers(0)
+                .simpleDifferencing(true)
+                .hamiltonRepresentation(true)
+                .approximateDiffuseVariance(initialVariance)
+                .build());
+
+        double intercept = (1.0 - reference.paramsAr()[0]) * reference.paramsMean()[0];
+        double[] expected = {
+            intercept,
+            reference.paramsAr()[0],
+            reference.paramsMa()[0],
+            reference.paramsVariance()[0]
+        };
+
+        assertEquals(reference.loglike(), model.logLikelihood(expected), 1e-4);
+        FilterResult filterResult = model.filter(expected, FilterSpec.full());
+        SARIMAXResults results = newResults(model, expected, filterResult);
+        assertEquals(reference.aic(), results.aic(), 1e-3);
+        assertEquals(reference.bic(), results.bic(), 1e-3);
+    }
+
+    @Test
+    void testWpiApproximateDiffuseFitMatchesStatsmodelsReference() {
+        WpiArimaReference reference = loadWpiArimaReference("wpi1_diffuse");
+        double initialVariance = loadFixtureScalar("wpi1_diffuse", "initial_variance");
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 1, 1), reference.endog())
+                .trendPowers(0)
+                .simpleDifferencing(true)
+                .hamiltonRepresentation(true)
+                .approximateDiffuseVariance(initialVariance)
+                .build());
+
+        SARIMAXResults results = model.fit();
+
+        double intercept = (1.0 - reference.paramsAr()[0]) * reference.paramsMean()[0];
+        double[] expected = {
+            intercept,
+            reference.paramsAr()[0],
+            reference.paramsMa()[0],
+            reference.paramsVariance()[0]
+        };
+
+        assertArrayClose(expected, results.params(), 5e-3);
+        assertEquals(reference.loglike(), results.logLikelihood(), 5e-4);
+        assertEquals(reference.aic(), results.aic(), 5e-3);
+        assertEquals(reference.bic(), results.bic(), 5e-3);
+    }
+
+    @Test
+    void testApproximateDiffuseLikelihoodBurnFollowsReferenceSemantics() {
+        WpiCoverageReference wpi = loadWpiCoverageReference();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(3, 2, 2), wpi.endog())
+                .seasonalOrder(SeasonalOrder.of(3, 2, 2, 4))
+                .exog(wpi.exog())
+                .build());
+
+        double[] burnedObs = model.logLikelihoodObs(wpi.params());
+        double burned = model.logLikelihood(wpi.params());
+        double raw = model.filter(wpi.params(), LIKELIHOOD_SPEC).logLikelihood();
+
+        for (int i = 0; i < wpi.burn(); i++) {
+            assertEquals(0.0, burnedObs[i], TOL);
+        }
+        assertEquals(Arrays.stream(burnedObs).sum(), burned, TOL);
+        assertTrue(Math.abs(burned - wpi.loglike()) < Math.abs(raw - wpi.loglike()));
+    }
+
+    @Test
+    void testExactDiffuseWpiLikelihoodMatchesReference() {
+        WpiCoverageReference wpi = loadWpiCoverageReference();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(3, 2, 2), wpi.endog())
+                .seasonalOrder(SeasonalOrder.of(3, 2, 2, 4))
+                .exog(wpi.exog())
+                .include(SARIMAXOption.USE_EXACT_DIFFUSE)
+                .build());
+
+        assertEquals(-162.45926553809218, model.logLikelihood(wpi.params()), 1e-6);
+    }
+
+    @Test
+    void testApproximateDiffuseWpiLikelihoodMatchesCoverageReference() {
+        WpiSeries wpi = loadWpiSeries();
+        CoverageRow row = loadCoverageRow("arima wpi x, arima(3,2,2) sarima(3,2,2,4) noconstant vce(oim)");
+
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(3, 2, 2), wpi.endog())
+                .seasonalOrder(SeasonalOrder.of(3, 2, 2, 4))
+                .exog(wpi.exog())
+                .build());
+
+        assertEquals(row.loglike(), model.logLikelihood(row.params()), 1e-4);
+    }
+
+    @Test
+    void testApproximateDiffuseResultsUseBurnedEffectiveSampleForBic() {
+        WpiCoverageReference wpi = loadWpiCoverageReference();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(3, 2, 2), wpi.endog())
+                .seasonalOrder(SeasonalOrder.of(3, 2, 2, 4))
+                .exog(wpi.exog())
+                .build());
+
+        FilterResult filterResult = model.filter(wpi.params(), FilterSpec.full());
+        SARIMAXResults results = newResults(model, wpi.params(), filterResult);
+
+        assertEquals(wpi.burn(), results.logLikelihoodBurn());
+        assertEquals(wpi.endog().length - wpi.burn(), results.nobsEffective());
+        assertEquals(0, results.kDiffuseStates());
+        assertEquals(wpi.params().length, results.dfModel());
+        assertEquals(results.nobsEffective() - results.dfModel(), results.dfResid());
+        assertEquals(wpi.loglike(), results.logLikelihood(), 1e-4);
+        double expectedAic = -2.0 * results.logLikelihood() + 2.0 * results.dfModel();
+        double expectedAicc = -2.0 * results.logLikelihood()
+            + 2.0 * results.dfModel() * results.nobsEffective()
+            / (results.nobsEffective() - results.dfModel() - 1.0);
+        double expectedBic = -2.0 * results.logLikelihood() + Math.log(results.nobsEffective()) * wpi.params().length;
+        double expectedHqic = -2.0 * results.logLikelihood()
+            + 2.0 * Math.log(Math.log(results.nobsEffective())) * results.dfModel();
+        double totalObsBic = -2.0 * results.logLikelihood() + Math.log(wpi.endog().length) * wpi.params().length;
+        assertEquals(expectedAic, results.aic(), 1e-8);
+        assertEquals(expectedAicc, results.aicc(), 1e-8);
+        assertEquals(expectedBic, results.bic(), 1e-8);
+        assertEquals(expectedHqic, results.hqic(), 1e-8);
+        assertNotEquals(totalObsBic, results.bic(), 1e-8);
+    }
+
+    @Test
+    void testInformationCriteriaHandleSingleEffectiveObservation() {
+        double[] y = {1.0, 2.0};
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(0, 1, 0), y)
+                .simpleDifferencing(true)
+                .build());
+        double[] params = {1.0};
+
+        FilterResult filterResult = model.filter(params, FilterSpec.full());
+        SARIMAXResults results = newResults(model, params, filterResult);
+
+        assertEquals(0, model.likelihoodBurn());
+        assertEquals(1, model.effectiveObservationCount());
+        assertEquals(0, results.logLikelihoodBurn());
+        assertEquals(1, results.nobsEffective());
+        assertEquals(1 - results.dfModel(), results.dfResid());
+        assertEquals(-2.0 * results.logLikelihood(), results.bic(), 1e-8);
+        assertEquals(Double.POSITIVE_INFINITY, results.aicc());
+        assertEquals(Double.POSITIVE_INFINITY, results.hqic());
+    }
+
+    @Test
+    void testExactDiffuseResultsDfModelIncludesDiffuseStates() {
+        WpiCoverageReference wpi = loadWpiCoverageReference();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(3, 2, 2), wpi.endog())
+                .seasonalOrder(SeasonalOrder.of(3, 2, 2, 4))
+                .exog(wpi.exog())
+                .include(SARIMAXOption.USE_EXACT_DIFFUSE)
+                .build());
+
+        FilterResult filterResult = model.filter(wpi.params(), FilterSpec.full());
+        SARIMAXResults results = newResults(model, wpi.params(), filterResult);
+
+        int expectedDiffuseStates = 2 + 2 * 4;
+        int expectedDfModel = wpi.params().length + expectedDiffuseStates;
+        double expectedAic = -2.0 * results.logLikelihood() + 2.0 * expectedDfModel;
+        double expectedAicc = -2.0 * results.logLikelihood()
+            + 2.0 * expectedDfModel * results.nobsEffective()
+            / (results.nobsEffective() - expectedDfModel - 1.0);
+        double paramsOnlyAic = -2.0 * results.logLikelihood() + 2.0 * wpi.params().length;
+
+        assertEquals(0, results.logLikelihoodBurn());
+        assertEquals(wpi.endog().length, results.nobsEffective());
+        assertEquals(expectedDiffuseStates, results.kDiffuseStates());
+        assertEquals(expectedDfModel, results.dfModel());
+        assertEquals(results.nobsEffective() - expectedDfModel, results.dfResid());
+        assertEquals(expectedAic, results.aic(), 1e-8);
+        assertEquals(expectedAicc, results.aicc(), 1e-8);
+        assertNotEquals(paramsOnlyAic, results.aic(), 1e-8);
+    }
+
+    @Test
+    void testTrendOnlyLogLikelihoodMatchesDirectStateSpace() {
+        double[] y = {2.1, 3.7, 4.0, 5.8, 6.9, 8.4};
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(0, 0, 0), y)
+                .trendPowers(0, 1)
+                .build());
+        double[] params = {1.25, 0.75, 0.2};
+
+        StateSpaceModel direct = buildTrendOnlyStateSpace(params[0], params[1], params[2], y);
+        FilterResult directFilter = KalmanFilter.filter(direct, StateInitialization.stationary(direct), null, LIKELIHOOD_SPEC);
+
+        assertEquals(directFilter.logLikelihood(), model.logLikelihood(params), TOL);
+        assertArrayEquals(directFilter.logLikelihoodObs, model.logLikelihoodObs(params), TOL);
+    }
+
+    @Test
+    void testExogOnlyLogLikelihoodAndForecastMatchDirectStateSpace() {
+        double[] y = {1.2, -0.7, 0.4, 1.6, -1.1, 0.8};
+        double[][] exog = {
+            {1.0},
+            {-0.5},
+            {0.25},
+            {2.0},
+            {-1.5},
+            {0.75}
+        };
+        double[] params = {0.8, 0.35};
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(0, 0, 0), y)
+                .exog(exog)
+                .build());
+
+        StateSpaceModel direct = buildExogOnlyStateSpace(params[0], exog, params[1], y);
+        FilterResult directFilter = KalmanFilter.filter(direct, StateInitialization.stationary(direct), null, LIKELIHOOD_SPEC);
+
+        assertArrayEquals(params, model.transformParams(model.untransformParams(params)), 1e-8);
+        assertEquals(directFilter.logLikelihood(), model.logLikelihood(params), TOL);
+        assertArrayEquals(directFilter.logLikelihoodObs, model.logLikelihoodObs(params), TOL);
+
+        FilterResult filterResult = model.filter(params, FilterSpec.full());
+        SARIMAXResults results = newResults(model, params, filterResult);
+        assertThrows(IllegalArgumentException.class, () -> results.forecast(1, null));
+
+        double[][] futureExog = {{1.5}, {-2.0}};
+        SARIMAXPrediction forecast = results.forecast(2, futureExog);
+
+        double[][] extendedExog = Arrays.copyOf(exog, exog.length + futureExog.length);
+        for (int i = 0; i < futureExog.length; i++) {
+            extendedExog[exog.length + i] = Arrays.copyOf(futureExog[i], futureExog[i].length);
+        }
+        double[] extendedY = Arrays.copyOf(y, y.length + futureExog.length);
+        Arrays.fill(extendedY, y.length, extendedY.length, Double.NaN);
+        StateSpaceModel directPredictionModel = buildExogOnlyStateSpace(params[0], extendedExog, params[1], extendedY);
+        FilterResult directPrediction = KalmanFilter.filter(directPredictionModel, StateInitialization.stationary(directPredictionModel), null, FilterSpec.full());
+
+        for (int step = 0; step < futureExog.length; step++) {
+            int t = y.length + step;
+            assertEquals(directPrediction.forecast(0, t), forecast.mean()[step], TOL);
+            assertEquals(directPrediction.forecastErrorCov(0, 0, t), forecast.variance()[step], TOL);
+        }
+    }
+
+    @Test
+    void testExogOnlyMissingObservationPathMatchesDirectStateSpace() {
+        double[] y = {1.2, Double.NaN, 0.4, 1.6, -1.1, 0.8};
+        double[][] exog = {
+            {1.0},
+            {-0.5},
+            {0.25},
+            {2.0},
+            {-1.5},
+            {0.75}
+        };
+        double[] params = {0.8, 0.35};
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(0, 0, 0), y)
+                .exog(exog)
+                .build());
+
+        StateSpaceModel direct = buildExogOnlyStateSpace(params[0], exog, params[1], y);
+        FilterResult directFilter = KalmanFilter.filter(direct, StateInitialization.stationary(direct), null, FilterSpec.full());
+        FilterResult filterResult = model.filter(params, FilterSpec.full());
+        SARIMAXResults results = newResults(model, params, filterResult);
+
+        assertEquals(directFilter.logLikelihood(), model.logLikelihood(params), TOL);
+        assertArrayEquals(directFilter.logLikelihoodObs, model.logLikelihoodObs(params), TOL);
+
+        double[] fitted = results.fittedValues();
+        double[] residuals = results.residuals();
+        for (int t = 0; t < y.length; t++) {
+            assertEquals(directFilter.forecast(0, t), filterResult.forecast(0, t), TOL);
+            assertEquals(directFilter.forecastErrorCov(0, 0, t), filterResult.forecastErrorCov(0, 0, t), TOL);
+            assertEquals(directFilter.forecast(0, t), fitted[t], TOL);
+            if (Double.isNaN(y[t])) {
+                assertTrue(Double.isNaN(residuals[t]));
+            } else {
+                assertEquals(directFilter.forecastError(0, t), residuals[t], TOL);
+            }
+        }
+        assertEquals(directFilter.forecast(0, 1), fitted[1], TOL);
+        assertTrue(Double.isNaN(residuals[1]));
+    }
+
+    @Test
+    void testMissingExogCoverageScenarioMatchesStatsmodelsReference() {
+        MissingExogReference reference = loadMissingExogReference();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(3, 0, 2), reference.endog())
+                .trendPowers(3)
+                .exog(column(reference.exog()))
+                .build());
+
+        FilterResult filterResult = model.filter(reference.params(), FilterSpec.full());
+        SARIMAXResults results = newResults(model, reference.params(), filterResult);
+
+        assertEquals(reference.loglike(), model.logLikelihood(reference.params()), 2.0);
+        assertEquals(model.logLikelihood(reference.params()), Arrays.stream(model.logLikelihoodObs(reference.params())).sum(), TOL);
+        assertEquals(reference.endog().length, results.fittedValues().length);
+        assertEquals(reference.endog().length, results.residuals().length);
+        assertTrue(Double.isNaN(results.residuals()[reference.missingIndex()]));
+    }
+
+    @Test
+    void testStandardizedForecastsErrorMatchesForecastErrorScaling() {
+        MissingExogReference reference = loadMissingExogReference();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(3, 0, 2), reference.endog())
+                .trendPowers(3)
+                .exog(column(reference.exog()))
+                .build());
+
+        FilterResult filterResult = model.filter(reference.params(), FilterSpec.full());
+        SARIMAXResults results = newResults(model, reference.params(), filterResult);
+
+        double[] expected = new double[reference.endog().length];
+        for (int t = 0; t < expected.length; t++) {
+            double forecastVariance = filterResult.forecastErrorCov(0, 0, t);
+            expected[t] = Double.isNaN(reference.endog()[t]) || !(forecastVariance > 0.0) || !Double.isFinite(forecastVariance)
+                ? Double.NaN
+                : filterResult.forecastError(0, t) / Math.sqrt(forecastVariance);
+        }
+
+        assertArrayEqualsAllowNaN(expected, results.standardizedForecastsError());
+    }
+
+    @Test
+    void testFilterResultMatchesFixtureAndDefensivelyCopiesState() {
+        MissingExogReference reference = loadMissingExogReference();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(3, 0, 2), reference.endog())
+                .trendPowers(3)
+                .exog(column(reference.exog()))
+                .build());
+
+        FilterResult filterResult = model.filter(reference.params(), FilterSpec.full());
+        SARIMAXResults results = newResults(model, reference.params(), filterResult);
+        double[] expectedLoglikeObs = Arrays.copyOf(filterResult.logLikelihoodObs, filterResult.logLikelihoodObs.length);
+        double[] expectedFitted = inSampleForecast(filterResult);
+
+        filterResult.logLikelihoodObs[0] = Double.POSITIVE_INFINITY;
+        filterResult.forecast[0] = Double.POSITIVE_INFINITY;
+
+        FilterResult firstCopy = results.filterResult();
+        assertArrayEqualsAllowNaN(expectedLoglikeObs, firstCopy.logLikelihoodObs);
+        assertArrayEqualsAllowNaN(expectedFitted, inSampleForecast(firstCopy));
+
+        firstCopy.logLikelihoodObs[0] = Double.NEGATIVE_INFINITY;
+        firstCopy.forecast[0] = Double.NEGATIVE_INFINITY;
+
+        FilterResult secondCopy = results.filterResult();
+        assertArrayEqualsAllowNaN(expectedLoglikeObs, secondCopy.logLikelihoodObs);
+        assertArrayEqualsAllowNaN(expectedFitted, inSampleForecast(secondCopy));
+    }
+
+    @Test
+    void testDynamicPredictAndForecastWithFutureExogUseStatsmodelsMissingScenario() {
+        MissingExogReference reference = loadMissingExogReference();
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(3, 0, 2), reference.endog())
+                .trendPowers(3)
+                .exog(column(reference.exog()))
+                .build());
+
+        FilterResult filterResult = model.filter(reference.params(), FilterSpec.full());
+        SARIMAXResults results = newResults(model, reference.params(), filterResult);
+
+        double[][] futureExog = column(reference.futureExog());
+        SARIMAXPrediction staticPrediction = results.predict(reference.predictStart(), reference.predictEnd(), false, futureExog);
+        SARIMAXPrediction dynamicPrediction = results.predict(reference.predictStart(), reference.predictEnd(), true, futureExog);
+        SARIMAXPrediction forecast = results.forecast(reference.futureExog().length, futureExog);
+
+        assertEquals(reference.predictEnd() - reference.predictStart() + 1, staticPrediction.mean().length);
+        assertEquals(staticPrediction.mean().length, dynamicPrediction.mean().length);
+        assertEquals(reference.futureExog().length, forecast.mean().length);
+        assertAllFinite(staticPrediction.mean());
+        assertAllFinite(staticPrediction.variance());
+        assertAllFinite(dynamicPrediction.mean());
+        assertAllFinite(dynamicPrediction.variance());
+        assertAllFinite(forecast.mean());
+        assertAllFinite(forecast.variance());
+    }
+
+    @Test
+    void testIntegratedAr1SnapshotMatchesExpectedLayout() {
+        double[] y = {1.0, 0.5, -0.3, 0.8, 0.2, -0.1};
+        SARIMAX model = new SARIMAX(SARIMAXSpec.builder(ARIMAOrder.of(1, 1, 0), y).build());
+
+        StateSpaceModel snapshot = model.snapshotModel(new double[]{0.6, 0.5});
+
+        assertEquals(2, snapshot.stateCount());
+        assertEquals(1, snapshot.stateDisturbanceCount());
+        assertArrayEquals(new double[]{1.0, 1.0}, slice(snapshot.designData(), snapshot.designOffset(0), 2), TOL);
+        assertArrayEquals(new double[]{1.0, 1.0, 0.0, 0.6}, slice(snapshot.transitionData(), snapshot.transitionOffset(0), 4), TOL);
+        assertArrayEquals(new double[]{0.0, 1.0}, slice(snapshot.selectionData(), snapshot.selectionOffset(0), 2), TOL);
+        assertArrayEquals(new double[]{0.5}, slice(snapshot.stateCovarianceData(), snapshot.stateCovarianceOffset(0), 1), TOL);
+    }
+
+    @Test
+    void testAr1ComplexSnapshotMatchesRealLayoutAndCarriesImaginaryPerturbation() {
+        double[] y = {1.0, 0.5, -0.3, 0.8, 0.2, -0.1};
+        SARIMAX model = new SARIMAX(SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), y).build());
+
+        StateSpaceModel realSnapshot = model.snapshotModel(new double[]{0.6, 0.5});
+        StateSpaceModel complexSnapshot = model.snapshotComplexModel(new double[]{0.6, 0.5});
+        StateSpaceModel perturbedSnapshot = model.snapshotComplexModel(new double[]{0.6, 0.5}, 0, 1e-20);
+
+        assertTrue(complexSnapshot.complex());
+        assertArrayEquals(new double[]{1.0, 0.0}, slice(complexSnapshot.designData(), complexSnapshot.designOffset(0), 2), TOL);
+        assertArrayEquals(new double[]{0.6, 0.0}, slice(complexSnapshot.transitionData(), complexSnapshot.transitionOffset(0), 2), TOL);
+        assertArrayEquals(new double[]{0.5, 0.0}, slice(complexSnapshot.stateCovarianceData(), complexSnapshot.stateCovarianceOffset(0), 2), TOL);
+        assertEquals(realSnapshot.transitionData()[realSnapshot.transitionOffset(0)], perturbedSnapshot.transitionData()[perturbedSnapshot.transitionOffset(0)], TOL);
+        assertEquals(1e-20, perturbedSnapshot.transitionData()[perturbedSnapshot.transitionOffset(0) + 1], 1e-30);
+    }
+
+    @Test
+    void testAr1StateRegressionSnapshotUsesTimeVaryingExogDesign() {
+        double[] y = {1.2, -0.4, 0.8, 1.1};
+        double[] x = {0.5, -1.0, 0.25, 1.5};
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), y)
+                .exog(column(x))
+                .mleRegression(false)
+                .build());
+
+        StateSpaceModel snapshot = model.snapshotModel(new double[]{0.6, 0.5});
+
+        assertArrayEquals(new String[]{"ar.L1", "sigma2"}, model.parameterNames());
+        assertEquals(2, model.startParams().length);
+        assertEquals(2, snapshot.stateCount());
+        assertArrayEquals(new double[]{1.0, x[0]}, slice(snapshot.designData(), snapshot.designOffset(0), 2), TOL);
+        assertArrayEquals(new double[]{1.0, x[2]}, slice(snapshot.designData(), snapshot.designOffset(2), 2), TOL);
+        assertArrayEquals(new double[]{0.6, 0.0, 0.0, 1.0}, slice(snapshot.transitionData(), snapshot.transitionOffset(0), 4), TOL);
+        assertArrayEquals(new double[]{1.0, 0.0}, slice(snapshot.selectionData(), snapshot.selectionOffset(0), 2), TOL);
+        assertArrayEquals(new double[]{0.5}, slice(snapshot.stateCovarianceData(), snapshot.stateCovarianceOffset(0), 1), TOL);
+    }
+
+    @Test
+    void testAr1StateRegressionFitKeepsExogOutOfParams() {
+        double[] x = generateAr1(0.2, 1.0, 120, 20260509L);
+        double[] latent = generateAr1(0.55, 0.25, 120, 20260510L);
+        double[] y = new double[x.length];
+        for (int index = 0; index < y.length; index++) {
+            y[index] = 0.8 * x[index] + latent[index];
+        }
+
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), y)
+                .exog(column(x))
+                .mleRegression(false)
+                .build());
+
+        SARIMAXResults results = model.fit();
+
+        assertEquals(2, results.params().length);
+        assertTrue(Double.isFinite(results.logLikelihood()));
+        assertEquals(y.length, results.fittedValues().length);
+    }
+
+    @Test
+    void testAr1TimeVaryingRegressionSnapshotUsesExogDisturbanceBlock() {
+        double[] y = {0.5, -0.2, 0.1, 0.9};
+        double[] x = {1.0, -0.5, 0.25, 1.5};
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), y)
+                .exog(column(x))
+                .mleRegression(false)
+                .timeVaryingRegression(true)
+                .build());
+
+        StateSpaceModel snapshot = model.snapshotModel(new double[]{0.6, 0.2, 0.5});
+
+        assertArrayEquals(new String[]{"ar.L1", "var.x1", "sigma2"}, model.parameterNames());
+        assertEquals(3, model.startParams().length);
+        assertEquals(2, snapshot.stateCount());
+        assertEquals(2, snapshot.stateDisturbanceCount());
+        assertArrayEquals(new double[]{1.0, x[0]}, slice(snapshot.designData(), snapshot.designOffset(0), 2), TOL);
+        assertArrayEquals(new double[]{1.0, x[3]}, slice(snapshot.designData(), snapshot.designOffset(3), 2), TOL);
+        assertArrayEquals(new double[]{0.6, 0.0, 0.0, 1.0}, slice(snapshot.transitionData(), snapshot.transitionOffset(0), 4), TOL);
+        assertArrayEquals(new double[]{1.0, 0.0, 0.0, 1.0}, slice(snapshot.selectionData(), snapshot.selectionOffset(0), 4), TOL);
+        assertArrayEquals(new double[]{0.5, 0.0, 0.0, 0.2}, slice(snapshot.stateCovarianceData(), snapshot.stateCovarianceOffset(0), 4), TOL);
+    }
+
+    @Test
+    void testWpiTimeVaryingRegressionFitUsesStatsmodelsSeries() {
+        double[] endog = diff(loadWpiSeries().endog());
+        double[] exog = new double[endog.length];
+        Arrays.fill(exog, 1.0);
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), endog)
+                .exog(column(exog))
+                .mleRegression(false)
+                .timeVaryingRegression(true)
+                .build());
+
+        SARIMAXResults results = model.fit();
+
+        assertEquals(3, results.params().length);
+        assertTrue(Double.isFinite(results.logLikelihood()));
+        assertTrue(results.params()[1] > 0.0);
+        assertTrue(results.params()[2] > 0.0);
+    }
+
+    @Test
+    void testPredictAndForecastSemanticsStayConsistentWithFilterSlices() {
+        double[] y = generateAr1(0.65, 0.2, 64, 42L);
+        SARIMAX model = new SARIMAX(SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), y).build());
+        double[] params = {0.65, 0.2};
+        FilterResult filterResult = model.filter(params, FilterSpec.full());
+        SARIMAXResults results = newResults(model, params, filterResult);
+
+        SARIMAXPrediction staticPrediction = results.predict(10, 20, false, null);
+        assertEquals(11, staticPrediction.mean().length);
+        for (int t = 10; t <= 20; t++) {
+            assertEquals(filterResult.forecast(0, t), staticPrediction.mean()[t - 10], TOL);
+            assertEquals(filterResult.forecastErrorCov(0, 0, t), staticPrediction.variance()[t - 10], TOL);
+        }
+
+        SARIMAXPrediction dynamicPrediction = results.predict(10, 20, true, null);
+        assertEquals(11, dynamicPrediction.mean().length);
+        assertNotEquals(staticPrediction.mean()[1], dynamicPrediction.mean()[1], 1e-9);
+
+        SARIMAXPrediction forecast = results.forecast(3, null);
+        assertEquals(3, forecast.mean().length);
+        for (double value : forecast.mean()) {
+            assertTrue(Double.isFinite(value));
+        }
+    }
+
+    @Test
+    void testFitAndForecastSmoke() {
+        double[] y = generateAr1(0.65, 0.2, 160, 42L);
+        SARIMAX model = new SARIMAX(SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0), y).build());
+
+        SARIMAXResults results = model.fit();
+        Optimization optimization = results.optimization();
+
+        assertTrue(Double.isFinite(optimization.cost()));
+        assertEquals(2, results.params().length);
+        assertTrue(results.params()[1] > 0.0);
+
+        SARIMAXPrediction prediction = results.forecast(4, null);
+        assertEquals(4, prediction.mean().length);
+        for (double value : prediction.mean()) {
+            assertTrue(Double.isFinite(value));
+        }
+        for (double value : prediction.variance()) {
+            assertTrue(Double.isFinite(value));
+            assertTrue(value >= 0.0);
+        }
+    }
+
+    @Test
+    void testArima000SmoothingMatchesStatsmodelsIdentity() {
+        double[] endog = {2.5, -1.0, 0.75, 4.25, -0.5, 3.0};
+        SARIMAX model = new SARIMAX(SARIMAXSpec.builder(ARIMAOrder.of(0, 0, 0), endog).build());
+
+        SmootherResult smooth = model.smooth(new double[]{1.0}, SmootherSpec.conventional());
+
+        for (int t = 0; t < endog.length; t++) {
+            assertEquals(endog[t], smooth.smoothedState(0, t), 1e-10);
+        }
+    }
+
+    @Test
+    void testArima000ExogSmoothingMatchesStatsmodelsOlsIdentity() {
+        double[] error = {0.4, -0.2, 1.1, -0.7, 0.0, 0.9};
+        double[] endog = new double[error.length];
+        double[] exog = new double[error.length];
+        Arrays.fill(exog, 1.0);
+        for (int t = 0; t < error.length; t++) {
+            endog[t] = 10.0 + error[t];
+        }
+
+        SARIMAX model = new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(0, 0, 0), endog)
+                .exog(column(exog))
+                .build());
+
+        SmootherResult smooth = model.smooth(new double[]{10.0, 1.0}, SmootherSpec.conventional());
+
+        for (int t = 0; t < error.length; t++) {
+            assertEquals(error[t], smooth.smoothedState(0, t), 1e-10);
+        }
+    }
+
+    @Test
+    void testArima010SmoothedDifferencedStateMatchesStatsmodelsIdentity() {
+        double[] endog = {3.0, 3.25, 2.5, 4.0, 4.75, 4.0};
+        SARIMAX model = new SARIMAX(SARIMAXSpec.builder(ARIMAOrder.of(0, 1, 0), endog).build());
+
+        SmootherResult smooth = model.smooth(new double[]{1.0}, SmootherSpec.conventional());
+
+        for (int t = 1; t < endog.length; t++) {
+            assertEquals(endog[t] - endog[t - 1], smooth.smoothedState(1, t), 1e-10);
+        }
+    }
+
+    private static StateSpaceModel buildAr1StateSpace(double phi, double sigma2, double[] y) {
+        return StateSpaceModel.builder(1, 1, 1, y.length)
+            .design(new double[]{1.0}, false)
+            .obsIntercept(new double[]{0.0}, false)
+            .obsCov(new double[]{0.0}, false)
+            .transition(new double[]{phi}, false)
+            .stateIntercept(new double[]{0.0}, false)
+            .selection(new double[]{1.0}, false)
+            .stateCovariance(new double[]{sigma2}, false)
+            .endog(Arrays.copyOf(y, y.length))
+            .allObserved()
+            .build();
+    }
+
+            private static StateSpaceModel buildAr1MeasurementErrorStateSpace(double phi,
+                                              double measurementVariance,
+                                              double sigma2,
+                                              double[] y) {
+            return StateSpaceModel.builder(1, 1, 1, y.length)
+                .design(new double[]{1.0}, false)
+                .obsIntercept(new double[]{0.0}, false)
+                .obsCov(new double[]{measurementVariance}, false)
+                .transition(new double[]{phi}, false)
+                .stateIntercept(new double[]{0.0}, false)
+                .selection(new double[]{1.0}, false)
+                .stateCovariance(new double[]{sigma2}, false)
+                .endog(Arrays.copyOf(y, y.length))
+                .allObserved()
+                .build();
+            }
+
+    private static StateSpaceModel buildTrendOnlyStateSpace(double intercept,
+                                                            double slope,
+                                                            double sigma2,
+                                                            double[] y) {
+        double[] stateIntercept = new double[y.length];
+        for (int t = 0; t < y.length; t++) {
+            stateIntercept[t] = intercept + slope * (t + 1.0);
+        }
+        return buildScalarInterceptStateSpace(y, null, stateIntercept, sigma2);
+    }
+
+    private static StateSpaceModel buildExogOnlyStateSpace(double beta,
+                                                           double[][] exog,
+                                                           double sigma2,
+                                                           double[] y) {
+        double[] obsIntercept = new double[y.length];
+        for (int t = 0; t < y.length; t++) {
+            obsIntercept[t] = beta * exog[t][0];
+        }
+        return buildScalarInterceptStateSpace(y, obsIntercept, null, sigma2);
+    }
+
+    private static StateSpaceModel buildScalarInterceptStateSpace(double[] y,
+                                                                  double[] obsIntercept,
+                                                                  double[] stateIntercept,
+                                                                  double sigma2) {
+        boolean hasMissing = Arrays.stream(y).anyMatch(Double::isNaN);
+        boolean[] missing = hasMissing ? new boolean[y.length] : null;
+        int[] nmissing = hasMissing ? new int[y.length] : null;
+        if (hasMissing) {
+            for (int t = 0; t < y.length; t++) {
+                if (Double.isNaN(y[t])) {
+                    missing[t] = true;
+                    nmissing[t] = 1;
+                }
+            }
+        }
+
+        StateSpaceModel.Builder builder = StateSpaceModel.builder(1, 1, 1, y.length)
+            .design(new double[]{1.0}, false)
+            .obsIntercept(obsIntercept == null ? new double[]{0.0} : Arrays.copyOf(obsIntercept, obsIntercept.length), obsIntercept != null)
+            .obsCov(new double[]{0.0}, false)
+            .transition(new double[]{0.0}, false)
+            .stateIntercept(stateIntercept == null ? new double[]{0.0} : Arrays.copyOf(stateIntercept, stateIntercept.length), stateIntercept != null)
+            .selection(new double[]{1.0}, false)
+            .stateCovariance(new double[]{sigma2}, false)
+            .endog(Arrays.copyOf(y, y.length));
+        return hasMissing ? builder.missing(missing, nmissing).build() : builder.allObserved().build();
+    }
+
+    private static double[] generateAr1(double phi, double sigma2, int n, long seed) {
+        Random random = new Random(seed);
+        double[] y = new double[n];
+        double state = 0.0;
+        for (int t = 0; t < n; t++) {
+            state = phi * state + random.nextGaussian() * Math.sqrt(sigma2);
+            y[t] = state;
+        }
+        return y;
+    }
+
+    private static Air2Reference loadAir2Reference() {
+        return new Air2Reference(
+            StatsmodelsSarimaxFixtures.array("air2_data"),
+            StatsmodelsSarimaxFixtures.dictArray("air2_stationary", "params_ma"),
+            StatsmodelsSarimaxFixtures.dictArray("air2_stationary", "se_ma_opg"),
+            StatsmodelsSarimaxFixtures.dictArray("air2_stationary", "se_ma_oim"),
+            StatsmodelsSarimaxFixtures.dictArray("air2_stationary", "params_seasonal_ma"),
+            StatsmodelsSarimaxFixtures.dictArray("air2_stationary", "se_seasonal_ma_opg"),
+            StatsmodelsSarimaxFixtures.dictArray("air2_stationary", "se_seasonal_ma_oim"),
+            StatsmodelsSarimaxFixtures.dictArray("air2_stationary", "params_variance"),
+            StatsmodelsSarimaxFixtures.dictArray("air2_stationary", "se_stddev_opg"),
+            StatsmodelsSarimaxFixtures.dictArray("air2_stationary", "se_stddev_oim"),
+            StatsmodelsSarimaxFixtures.dictScalar("air2_stationary", "loglike"),
+            StatsmodelsSarimaxFixtures.dictScalar("air2_stationary", "aic"),
+            StatsmodelsSarimaxFixtures.dictScalar("air2_stationary", "bic"));
+    }
+
+    private static WpiSeries loadWpiSeries() {
+        double[] endog = StatsmodelsSarimaxFixtures.array("wpi1_data");
+        double[][] exog = new double[endog.length][1];
+        for (int i = 0; i < endog.length; i++) {
+            double frac = endog[i] - Math.floor(endog[i]);
+            exog[i][0] = frac * frac;
+        }
+        return new WpiSeries(endog, exog);
+    }
+
+    private static WpiCoverageReference loadWpiCoverageReference() {
+        WpiSeries wpi = loadWpiSeries();
+        CoverageRow row = loadCoverageRow("arima wpi x, arima(3,2,2) sarima(3,2,2,4) noconstant vce(oim)");
+        return new WpiCoverageReference(wpi.endog(), wpi.exog(), row.params(), row.loglike(), 10);
+    }
+
+    private static MissingExogReference loadMissingExogReference() {
+        WpiSeries wpi = loadWpiSeries();
+        double[] source = Arrays.copyOf(wpi.endog(), wpi.endog().length);
+        double[] exog = new double[source.length - 1];
+        for (int i = 1; i < source.length; i++) {
+            exog[i - 1] = wpi.exog()[i][0];
+        }
+        Arrays.fill(source, 9, 19, Double.NaN);
+        double[] endog = diff(source);
+        endog[9] = Double.NaN;
+        CoverageRow row = loadCoverageRow("arima D.wpi2 t32 x, arima(3,0,2) noconstant vce(oim)");
+        double[] futureExog = Arrays.copyOfRange(exog, exog.length - 3, exog.length);
+        return new MissingExogReference(endog, exog, futureExog, row.params(), endog.length - 3, endog.length + 2, 9, row.loglike());
+    }
+
+    private static FriedmanMleReference loadFriedmanMleReference() {
+        return new FriedmanMleReference(
+            StatsmodelsSarimaxFixtures.dictArray("friedman2_data", "consump"),
+            StatsmodelsSarimaxFixtures.dictArray("friedman2_data", "m2"),
+            StatsmodelsSarimaxFixtures.dictArray("friedman2_mle", "params_exog"),
+            StatsmodelsSarimaxFixtures.dictArray("friedman2_mle", "params_ar"),
+            StatsmodelsSarimaxFixtures.dictArray("friedman2_mle", "params_ma"),
+            StatsmodelsSarimaxFixtures.dictArray("friedman2_mle", "params_variance"),
+            StatsmodelsSarimaxFixtures.dictScalar("friedman2_mle", "loglike"),
+            StatsmodelsSarimaxFixtures.dictScalar("friedman2_mle", "aic"),
+            StatsmodelsSarimaxFixtures.dictScalar("friedman2_mle", "bic"));
+    }
+
+    private static FriedmanPredictReference loadFriedmanPredictReference() {
+        double[] endog = StatsmodelsSarimaxFixtures.dictArray("friedman2_data", "consump");
+        double[] exog = StatsmodelsSarimaxFixtures.dictArray("friedman2_data", "m2");
+        int horizon = 15;
+        int dynamicStart = endog.length - horizon;
+        double[] dynamicPredict = StatsmodelsSarimaxFixtures.dictArray("friedman2_predict", "dynamic_predict");
+        double[] forecast = StatsmodelsSarimaxFixtures.dictArray("friedman2_predict", "forecast");
+        double[] dynamicForecast = StatsmodelsSarimaxFixtures.dictArray("friedman2_predict", "dynamic_forecast");
+        return new FriedmanPredictReference(
+            endog,
+            exog,
+            Arrays.copyOf(endog, endog.length - horizon),
+            Arrays.copyOf(exog, exog.length - horizon),
+            Arrays.copyOfRange(exog, exog.length - horizon, exog.length),
+            StatsmodelsSarimaxFixtures.dictArray("friedman2_predict", "predict"),
+            dynamicStart,
+            Arrays.copyOfRange(dynamicPredict, dynamicStart, dynamicPredict.length),
+            horizon,
+            Arrays.copyOfRange(forecast, forecast.length - horizon, forecast.length),
+            dynamicStart,
+            Arrays.copyOfRange(dynamicForecast, dynamicForecast.length - horizon, dynamicForecast.length),
+            StatsmodelsSarimaxFixtures.dictArray("friedman2_predict", "params_exog"),
+            StatsmodelsSarimaxFixtures.dictArray("friedman2_predict", "params_ar"),
+            StatsmodelsSarimaxFixtures.dictArray("friedman2_predict", "params_ma"),
+            StatsmodelsSarimaxFixtures.dictArray("friedman2_predict", "params_variance"));
+    }
+
+    private static WpiArimaReference loadWpiArimaReference(String fileName) {
+        String fixtureName = statsmodelsName(fileName);
+        return new WpiArimaReference(
+            StatsmodelsSarimaxFixtures.dictArray(fixtureName, "data"),
+            StatsmodelsSarimaxFixtures.dictArray(fixtureName, "params_ar"),
+            StatsmodelsSarimaxFixtures.dictArray(fixtureName, "params_ma"),
+            StatsmodelsSarimaxFixtures.dictArray(fixtureName, "params_mean"),
+            StatsmodelsSarimaxFixtures.dictArray(fixtureName, "params_variance"),
+            StatsmodelsSarimaxFixtures.dictScalar(fixtureName, "loglike"),
+            StatsmodelsSarimaxFixtures.dictScalar(fixtureName, "aic"),
+            StatsmodelsSarimaxFixtures.dictScalar(fixtureName, "bic"));
+    }
+
+    private static double loadFixtureScalar(String fileName, String key) {
+        return StatsmodelsSarimaxFixtures.dictScalar(statsmodelsName(fileName), key);
+    }
+
+    private static CoverageRow loadCoverageRow(String mod) {
+        for (String line : StatsmodelsSarimaxFixtures.coverageLines()) {
+            if (!line.startsWith('"' + mod + '"')) {
+                continue;
+            }
+            int firstEnd = line.indexOf("\",");
+            int secondSep = line.indexOf(",\"", firstEnd + 2);
+            double loglike = Double.parseDouble(line.substring(firstEnd + 2, secondSep));
+            String[] parts = line.substring(secondSep + 2, line.length() - 1).split(",");
+            double[] params = new double[parts.length];
+            for (int i = 0; i < parts.length; i++) {
+                params[i] = Double.parseDouble(parts[i]);
+            }
+            params[params.length - 1] *= params[params.length - 1];
+            return new CoverageRow(mod, loglike, params);
+        }
+        throw new IllegalArgumentException("Missing SARIMAX coverage reference row: " + mod);
+    }
+
+    private static String statsmodelsName(String fileName) {
+        return fileName.endsWith(".json") ? fileName.substring(0, fileName.length() - ".json".length()) : fileName;
+    }
+
+    private static SARIMAXResults newResults(SARIMAX model, double[] params, FilterResult filterResult) {
+        return new SARIMAXResults(
+            model,
+            null,
+            params,
+            model.untransformParams(params),
+            filterResult,
+            MLECovariance.OPG);
+    }
+
+    private static double[] slice(double[] values, int offset, int length) {
+        return Arrays.copyOfRange(values, offset, offset + length);
+    }
+
+    private static double[][] column(double[] values) {
+        double[][] column = new double[values.length][1];
+        for (int i = 0; i < values.length; i++) {
+            column[i][0] = values[i];
+        }
+        return column;
+    }
+
+    private static double[][] withIntercept(double[] values) {
+        double[][] exog = new double[values.length][2];
+        for (int i = 0; i < values.length; i++) {
+            exog[i][0] = 1.0;
+            exog[i][1] = values[i];
+        }
+        return exog;
+    }
+
+    private static SARIMAX airlineModel(double[] endog) {
+        return new SARIMAX(
+            SARIMAXSpec.builder(ARIMAOrder.of(0, 1, 1), endog)
+                .seasonalOrder(SeasonalOrder.of(0, 1, 1, 12))
+                .build());
+    }
+
+    private static double[] airlineBseOpg(Air2Reference air2) {
+        return new double[]{
+            air2.seMaOpg()[0],
+            air2.seSeasonalMaOpg()[0],
+            varianceStandardError(air2.paramsVariance()[0], air2.seStdDevOpg()[0])
+        };
+    }
+
+    private static double[] airlineBseOim(Air2Reference air2) {
+        return new double[]{
+            air2.seMaOim()[0],
+            air2.seSeasonalMaOim()[0],
+            varianceStandardError(air2.paramsVariance()[0], air2.seStdDevOim()[0])
+        };
+    }
+
+    private static double varianceStandardError(double variance, double stddevStandardError) {
+        return 2.0 * Math.sqrt(variance) * stddevStandardError;
+    }
+
+    private static double[] diff(double[] values) {
+        double[] differenced = new double[values.length - 1];
+        for (int i = 1; i < values.length; i++) {
+            differenced[i - 1] = values[i] - values[i - 1];
+        }
+        return differenced;
+    }
+
+    private static double[][] scale(double[][] values, double factor) {
+        double[][] scaled = new double[values.length][];
+        for (int row = 0; row < values.length; row++) {
+            scaled[row] = new double[values[row].length];
+            for (int col = 0; col < values[row].length; col++) {
+                scaled[row][col] = values[row][col] * factor;
+            }
+        }
+        return scaled;
+    }
+
+    private static double[] diagonalStandardErrors(double[] covariance) {
+        int dimension = (int) Math.round(Math.sqrt(covariance.length));
+        double[] standardErrors = new double[dimension];
+        for (int i = 0; i < dimension; i++) {
+            standardErrors[i] = Math.sqrt(covariance[i * dimension + i]);
+        }
+        return standardErrors;
+    }
+
+    private static void assertArrayClose(double[] expected, double[] actual, double tol) {
+        assertEquals(expected.length, actual.length);
+        for (int i = 0; i < expected.length; i++) {
+            assertEquals(expected[i], actual[i], tol, "mismatch at index " + i);
+        }
+    }
+
+    private static void assertArrayAllClose(double[] expected, double[] actual, double absTol, double relTol) {
+        assertEquals(expected.length, actual.length);
+        for (int i = 0; i < expected.length; i++) {
+            double delta = Math.abs(expected[i] - actual[i]);
+            double limit = absTol + relTol * Math.abs(expected[i]);
+            assertTrue(delta <= limit,
+                "mismatch at index " + i + ": expected=" + expected[i] + ", actual=" + actual[i] + ", delta=" + delta + ", limit=" + limit);
+        }
+    }
+
+    private static void assertAllFinite(double[] values) {
+        for (double value : values) {
+            assertTrue(Double.isFinite(value));
+        }
+    }
+
+    private static double[] predictionTail(SARIMAXPrediction prediction, int startIndex) {
+        int offset = startIndex - prediction.start();
+        return Arrays.copyOfRange(prediction.mean(), offset, prediction.mean().length);
+    }
+
+    private static double concentratedScale(FilterResult filterResult, double[] endog, int burn) {
+        int start = Math.max(burn, filterResult.nobsDiffuse);
+        int observedCount = 0;
+        double scaleSum = 0.0;
+        for (int t = start; t < endog.length; t++) {
+            double forecastVariance = filterResult.forecastErrorCov(0, 0, t);
+            if (Double.isNaN(endog[t]) || !(forecastVariance > 0.0) || !Double.isFinite(forecastVariance)) {
+                continue;
+            }
+            double error = filterResult.forecastError(0, t);
+            scaleSum += error * error / forecastVariance;
+            observedCount++;
+        }
+        if (observedCount == 0) {
+            return 1.0;
+        }
+        return Math.max(scaleSum / observedCount, 1e-8);
+    }
+
+    private static double[] concentratedLogLikelihoodObs(FilterResult filterResult,
+                                                         double[] endog,
+                                                         int burn,
+                                                         double scale) {
+        double[] adjusted = Arrays.copyOf(filterResult.logLikelihoodObs, filterResult.logLikelihoodObs.length);
+        double logScale = Math.log(scale);
+        for (int t = 0; t < adjusted.length; t++) {
+            double forecastVariance = filterResult.forecastErrorCov(0, 0, t);
+            if (Double.isNaN(endog[t]) || !(forecastVariance > 0.0) || !Double.isFinite(forecastVariance)) {
+                continue;
+            }
+            double error = filterResult.forecastError(0, t);
+            double scaleObs = error * error / forecastVariance;
+            adjusted[t] += -0.5 * (logScale + scaleObs / scale - scaleObs);
+        }
+        for (int t = 0; t < Math.min(burn, adjusted.length); t++) {
+            adjusted[t] = 0.0;
+        }
+        return adjusted;
+    }
+
+    private static double[] inSampleForecast(FilterResult filterResult) {
+        double[] fitted = new double[filterResult.nobs];
+        for (int t = 0; t < fitted.length; t++) {
+            fitted[t] = filterResult.forecast(0, t);
+        }
+        return fitted;
+    }
+
+    private static void assertConcentratedScaleMatchesUnconcentrated(SARIMAXSpec originalSpec,
+                                                                     SARIMAXSpec concentratedSpec,
+                                                                     int scaledTail,
+                                                                     double tol) {
+        SARIMAX concentrated = new SARIMAX(concentratedSpec);
+        double[] concentratedParams = concentrated.startParams();
+        SARIMAXResults concentratedResults = newResults(
+            concentrated,
+            concentratedParams,
+            concentrated.filter(concentratedParams, FilterSpec.full()));
+
+        double[] originalParams = unconcentratedParams(concentratedParams, concentratedResults.scale(), scaledTail);
+        SARIMAX original = new SARIMAX(originalSpec);
+        SARIMAXResults originalResults = newResults(
+            original,
+            originalParams,
+            original.filter(originalParams, FilterSpec.full()));
+
+        assertEquals(originalResults.logLikelihood(), concentratedResults.logLikelihood(), tol);
+    }
+
+    private static double[] unconcentratedParams(double[] concentratedParams, double scale, int scaledTail) {
+        double[] original = Arrays.copyOf(concentratedParams, concentratedParams.length + 1);
+        original[original.length - 1] = 1.0;
+        for (int index = original.length - scaledTail; index < original.length; index++) {
+            original[index] *= scale;
+        }
+        return original;
+    }
+
+    private static void assertArrayEqualsAllowNaN(double[] expected, double[] actual) {
+        assertEquals(expected.length, actual.length);
+        for (int i = 0; i < expected.length; i++) {
+            if (Double.isNaN(expected[i])) {
+                assertTrue(Double.isNaN(actual[i]), "expected NaN at index " + i + " but was " + actual[i]);
+            } else {
+                assertEquals(expected[i], actual[i], TOL, "mismatch at index " + i);
+            }
+        }
+    }
+
+    private record Air2Reference(double[] data,
+                                 double[] paramsMa,
+                                 double[] seMaOpg,
+                                 double[] seMaOim,
+                                 double[] paramsSeasonalMa,
+                                 double[] seSeasonalMaOpg,
+                                 double[] seSeasonalMaOim,
+                                 double[] paramsVariance,
+                                 double[] seStdDevOpg,
+                                 double[] seStdDevOim,
+                                 double loglike,
+                                 double aic,
+                                 double bic) {
+    }
+
+    private record WpiCoverageReference(double[] endog,
+                                        double[][] exog,
+                                        double[] params,
+                                        double loglike,
+                                        int burn) {
+    }
+
+    private record WpiSeries(double[] endog, double[][] exog) {
+    }
+
+    private record CoverageRow(String mod, double loglike, double[] params) {
+    }
+
+    private record MissingExogReference(double[] endog,
+                                        double[] exog,
+                                        double[] futureExog,
+                                        double[] params,
+                                        int predictStart,
+                                        int predictEnd,
+                                        int missingIndex,
+                                        double loglike) {
+    }
+
+    private record FriedmanMleReference(double[] endog,
+                                        double[] exog,
+                                        double[] paramsExog,
+                                        double[] paramsAr,
+                                        double[] paramsMa,
+                                        double[] paramsVariance,
+                                        double loglike,
+                                        double aic,
+                                        double bic) {
+    }
+
+    private record FriedmanPredictReference(double[] endog,
+                                            double[] exog,
+                                            double[] trainEndog,
+                                            double[] trainExog,
+                                            double[] futureExog,
+                                            double[] predict,
+                                            int dynamicPredictStart,
+                                            double[] dynamicPredictTail,
+                                            int forecastHorizon,
+                                            double[] forecastTail,
+                                            int dynamicForecastStart,
+                                            double[] dynamicForecastTail,
+                                            double[] paramsExog,
+                                            double[] paramsAr,
+                                            double[] paramsMa,
+                                            double[] paramsVariance) {
+    }
+
+    private record WpiArimaReference(double[] endog,
+                                     double[] paramsAr,
+                                     double[] paramsMa,
+                                     double[] paramsMean,
+                                     double[] paramsVariance,
+                                     double loglike,
+                                     double aic,
+                                     double bic) {
+    }
+}

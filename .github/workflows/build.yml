@@ -1,0 +1,44 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      VALHALLA_JDK_URL: https://download.java.net/java/early_access/valhalla/27/1/openjdk-27-jep401ea3+1-1_linux-x64_bin.tar.gz
+      VALHALLA_JDK_SHA256_URL: https://download.java.net/java/early_access/valhalla/27/1/openjdk-27-jep401ea3+1-1_linux-x64_bin.tar.gz.sha256
+      VALHALLA_JDK_VERSION: '27.0.0-ea'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Valhalla EA JDK 27
+        run: |
+          curl -fsSL "$VALHALLA_JDK_URL" -o "$RUNNER_TEMP/valhalla-jdk.tar.gz"
+          checksum=$(curl -fsSL "$VALHALLA_JDK_SHA256_URL")
+          printf '%s  %s\n' "$checksum" "$RUNNER_TEMP/valhalla-jdk.tar.gz" | sha256sum --check -
+
+      - name: Set up Valhalla EA JDK 27
+        uses: actions/setup-java@v4
+        with:
+          distribution: jdkfile
+          jdkFile: ${{ runner.temp }}/valhalla-jdk.tar.gz
+          java-version: ${{ env.VALHALLA_JDK_VERSION }}
+          architecture: x64
+          cache: maven
+
+      - name: Print Java version
+        run: java -version
+
+      - name: Build and test
+        run: mvn -B verify
+
+      - name: Upload JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: yum4j-jar
+          path: target/*.jar

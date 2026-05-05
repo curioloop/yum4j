@@ -1,0 +1,2688 @@
+# YUM4J — Full API Reference
+
+> For AI assistants to deeply understand how to use the YUM4J library.
+
+## 1. Library Overview and Installation
+
+YUM4J is a high-performance Java toolkit for numerical modeling and scientific computing, providing optimization, root-finding, numerical integration, ODE solving, linear regression, matrix decomposition, transform, filtering, time-series/state-space, and probability distribution APIs:
+
+- **CMA-ES**: Covariance Matrix Adaptation Evolution Strategy, suitable for non-convex, non-smooth, and noisy derivative-free global optimization
+- **Subplex**: Derivative-free optimization (Nelder-Mead + subspace decomposition), suitable when gradients are unavailable
+- **L-BFGS-B**: Bounded quasi-Newton method, suitable for unconstrained or box-constrained optimization
+- **SLSQP**: Sequential Least Squares Programming, suitable for equality/inequality constrained optimization
+- **TRF**: Trust Region Reflective method, suitable for bounded nonlinear least-squares fitting
+- **Quadrature**: Adaptive GK15, fixed Gauss-Legendre, double-exponential (tanh-sinh / exp-sinh / sinh-sinh), oscillatory, improper, endpoint-singular, Cauchy principal value, and sampled-data integration via `Integrator`
+
+### Maven Dependency
+
+```xml
+<dependency>
+    <groupId>com.curioloop</groupId>
+    <artifactId>yum4j</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
+### Package Structure
+
+```
+com.curioloop.yum4j.optim          # Minimizer, RootFinder, Bound, Optimization, Optimization.Status
+com.curioloop.yum4j.optim.cmaes    # CMAESProblem, CMAESWorkspace, CMAESCore, UpdateMode, RestartMode
+com.curioloop.yum4j.optim.subplex  # SubplexProblem, SubplexWorkspace
+com.curioloop.yum4j.optim.lbfgsb   # LBFGSBProblem, LBFGSBWorkspace
+com.curioloop.yum4j.optim.slsqp    # SLSQPProblem, SLSQPWorkspace
+com.curioloop.yum4j.optim.trf      # TRFProblem, TRFWorkspace
+com.curioloop.yum4j.optim.root     # BrentqProblem, HYBRProblem, HYBRWorkspace, BroydenProblem, BroydenWorkspace
+com.curioloop.yum4j.quad           # Integrator, Integral, Quadrature (result + Status), Trajectory (ODE result)
+com.curioloop.yum4j.quad.de        # DoubleExponentialIntegral, DEPool, DEOpts
+com.curioloop.yum4j.quad.adapt     # AdaptiveIntegral, AdaptivePool
+com.curioloop.yum4j.quad.gauss     # FixedIntegral, WeightedIntegral, GaussRule, GaussPool
+com.curioloop.yum4j.quad.gauss.rule # JacobiRule, LegendreRule, LaguerreRule, HermiteRule, GeneralizedLaguerreRule, GeneralizedHermiteRule
+com.curioloop.yum4j.quad.special   # OscillatoryIntegral, OscillatoryOpts, EndpointSingularIntegral, EndpointOpts
+                                      # PrincipalValueIntegral, ImproperIntegral, ImproperOpts
+com.curioloop.yum4j.quad.sampled   # SampledIntegral, CumulativeIntegral, SampledRule, FilonIntegral, FilonOpts
+com.curioloop.yum4j.quad.ode       # IVPIntegral, ODE, ODEEvent, IVPPool, IVPCore, EventHandler
+com.curioloop.yum4j.quad.ode.rk    # RungeKuttaCore, RungeKuttaPool, ButcherTableau
+com.curioloop.yum4j.quad.ode.implicit # BDFCore, BDFPool, RadauCore, RadauPool, ImplicitCore, ImplicitPool
+```
+
+
+## 2. Algorithm Selection Decision Tree
+
+```
+Have a residual function (least squares)?
+  ├─ Yes → TRFProblem via Minimizer.trf()
+  └─ No  → Root-finding problem (F(x) = 0)?
+            ├─ Yes → RootFinder.brentq() (1-D) or RootFinder.hybr() / RootFinder.broyden() (N-D)
+            └─ No  → Numerical integration problem?
+                      ├─ Yes → Integrator.adaptive() / .fixed() / .doubleExponential() / .oscillatory() / .improper() / ...
+                      └─ No  → ODE initial value problem?
+                                ├─ Yes → Integrator.ode(IVPMethod) → IVPIntegral
+                                └─ No  → Have equality/inequality constraints?
+                                ├─ Yes → SLSQPProblem via Minimizer.slsqp()
+                                └─ No  → Gradient available?
+                                          ├─ Yes → LBFGSBProblem via Minimizer.lbfgsb()
+                                          └─ No  → Non-convex / global / noisy?
+                                                    ├─ Yes → CMAESProblem via Minimizer.cmaes()
+                                                    └─ No  → SubplexProblem via Minimizer.subplex()
+```
+
+| Problem Type | Recommended Class | Notes |
+|---|---|---|
+| Derivative-free global optimization | `CMAESProblem` | Non-convex, noisy, multimodal; supports IPOP/BIPOP restarts |
+| Derivative-free optimization | `SubplexProblem` | No gradient needed, works for any dimension |
+| Unconstrained optimization | `LBFGSBProblem` | Fastest when gradient is available |
+| Box-constrained optimization | `LBFGSBProblem` | Supports l ≤ x ≤ u |
+| Equality-constrained optimization | `SLSQPProblem` | c(x) = 0 |
+| Inequality-constrained optimization | `SLSQPProblem` | c(x) ≥ 0 |
+| Nonlinear least squares | `TRFProblem` | min ½‖f(x)‖² |
+| 1-D root finding | `BrentqProblem` | Brentq, requires `Bound.between(a,b)` bracket |
+| N-D root finding | `HYBRProblem` / `BroydenProblem` | HYBR (with Jacobian) or Broyden (Jacobian-free) |
+| Adaptive integration on [a,b] | `AdaptiveIntegral` | GK15 with error estimate |
+| Double-exponential integration | `DoubleExponentialIntegral` | Tanh-sinh for finite intervals, exp-sinh for half-lines, sinh-sinh for whole-line decaying integrands |
+| Fixed Gauss-Legendre on [a,b] | `FixedIntegral` | Exact for polynomials ≤ degree 2n-1 |
+| Oscillatory ∫ f·cos/sin dx | `OscillatoryIntegral` | Finite or semi-infinite |
+| Improper ∫ on semi-∞ / ∞ | `ImproperIntegral` | Adaptive or fixed-point |
+| Endpoint-singular ∫ | `EndpointSingularIntegral` | Algebraic or log-weighted |
+| Cauchy principal value | `PrincipalValueIntegral` | Sokhotski–Plemelj regularization |
+| Sampled-data integration | `SampledIntegral` / `CumulativeIntegral` | Trapezoidal, Simpson, Romberg |
+| Highly oscillatory finite ∫ | `FilonIntegral` | Filon's method, efficient for large t |
+| Matrix decomposition | `Decomposer` | LU, QR, LQ, SVD, Cholesky, Schur, Eigen, GEVD, GGEVD, GSVD |
+
+
+## 3. Minimizer (Static Factory Entry Point)
+
+`com.curioloop.yum4j.optim.Minimizer`
+
+Static factory that creates the appropriate Problem instance for each algorithm.
+
+### Static Factory Methods
+
+```java
+Minimizer.cmaes()    // → CMAESProblem (derivative-free global, CMA-ES)
+Minimizer.subplex()  // → SubplexProblem (derivative-free)
+Minimizer.lbfgsb()   // → LBFGSBProblem
+Minimizer.slsqp()    // → SLSQPProblem
+Minimizer.trf()      // → TRFProblem
+```
+
+### Complete Example
+
+```java
+import com.curioloop.yum4j.optim.*;
+import com.curioloop.yum4j.optim.cmaes.*;
+import com.curioloop.yum4j.optim.subplex.*;
+import com.curioloop.yum4j.optim.lbfgsb.*;
+import com.curioloop.yum4j.optim.slsqp.*;
+import com.curioloop.yum4j.optim.trf.*;
+import java.util.Arrays;
+
+// Global derivative-free optimization (CMA-ES)
+Optimization r00 = Minimizer.cmaes()
+    .objective((x, n) -> x[0]*x[0] + x[1]*x[1])
+    .initialPoint(1.0, 1.0)
+    .solve();
+
+// CMA-ES with IPOP restart and bounds
+Optimization r00b = Minimizer.cmaes()
+    .objective(fn)
+    .initialPoint(x0)
+    .initialSigma(0.5)
+    .restartMode(RestartMode.ipop(9, 2))
+    .maxEvaluations(100000)
+    .bounds(Bound.between(-5, 5), Bound.between(-5, 5))
+    .solve();
+
+// Derivative-free optimization (Subplex)
+Optimization r0 = Minimizer.subplex()
+    .objective((x, n) -> x[0]*x[0] + x[1]*x[1])
+    .initialPoint(1.0, 1.0)
+    .solve();
+
+// Derivative-free with bounds and step sizes
+Optimization r0b = Minimizer.subplex()
+    .objective(fn)
+    .initialPoint(x0)
+    .bounds(Bound.between(0, 10), Bound.between(0, 10))
+    .initialStep(1.0, 2.0)
+    .functionTolerance(1e-8)
+    .maxEvaluations(50000)
+    .solve();
+
+// Unconstrained optimization (L-BFGS-B)
+Optimization r1 = Minimizer.lbfgsb()
+    .objective((x, n) -> x[0]*x[0] + x[1]*x[1])
+    .initialPoint(1.0, 1.0)
+    .solve();
+System.out.println(Arrays.toString(r1.solution())); // [0.0, 0.0]
+
+// Box-constrained optimization (L-BFGS-B)
+Optimization r2 = Minimizer.lbfgsb()
+    .objective((x, n) -> x[0]*x[0] + x[1]*x[1])
+    .bounds(Bound.atLeast(0.5), Bound.atLeast(0.5))
+    .initialPoint(1.0, 1.0)
+    .solve();
+
+// Inequality-constrained optimization (SLSQP)
+// minimize x[0] + x[1], subject to x[0]^2 + x[1]^2 >= 1
+Optimization r3 = Minimizer.slsqp()
+    .objective((x, n) -> x[0] + x[1])
+    .inequalityConstraints((x, n) -> x[0]*x[0] + x[1]*x[1] - 1)
+    .initialPoint(1.0, 1.0)
+    .solve();
+
+// Equality-constrained optimization (SLSQP)
+// minimize x[0]^2 + x[1]^2, subject to x[0] + x[1] = 1
+Optimization r4 = Minimizer.slsqp()
+    .objective((x, n) -> x[0]*x[0] + x[1]*x[1])
+    .equalityConstraints((x, n) -> x[0] + x[1] - 1)
+    .initialPoint(0.5, 0.5)
+    .solve();
+
+// Least squares (TRF)
+Optimization r5 = Minimizer.trf()
+    .residuals((x, n, res, m) -> {
+        res[0] = x[0] - 3.0;
+        res[1] = x[1] - 4.0;
+    }, 2)
+    .initialPoint(0.0, 0.0)
+    .solve();
+```
+
+
+## 4. CMAESProblem (CMA-ES Derivative-Free Global Optimizer)
+
+`com.curioloop.yum4j.optim.cmaes.CMAESProblem`
+
+Stochastic derivative-free optimizer using the Covariance Matrix Adaptation Evolution Strategy.
+Suitable for non-convex, non-smooth, multimodal, and noisy objective functions.
+Supports sep-CMA-ES (diagonal mode) and IPOP/BIPOP restart strategies.
+
+### Constructor
+
+```java
+new CMAESProblem()
+```
+
+### Fluent API Methods
+
+| Method | Description | Default | Constraint |
+|---|---|---|---|
+| `objective(Univariate.Objective f)` | Set objective function (no gradient needed); signature: `(x, n) -> double` | — | f != null |
+| `initialPoint(double... x0)` | Set initial point, also infers dimension n | — | non-null, non-empty, all finite |
+| `bounds(Bound... bounds)` | Set variable bounds | null (unbounded) | length must match n |
+| `sigma(double s)` | Initial step size σ₀ | 0.3 | > 0, finite |
+| `populationSize(int lam)` | Population size λ; 0 = auto: 4 + floor(3·ln(n)) | 0 (auto) | > 0 |
+| `maxIterations(int v)` | Maximum generations per run | 1000 | > 0 |
+| `maxEvaluations(int v)` | Maximum function evaluations; 0 = auto: λ·1000 | 0 (auto) | > 0 |
+| `maxGenerations(int n)` | Generation budget (resolved lazily as n×λ); last of maxEvaluations/maxGenerations wins | 0 (not set) | > 0 |
+| `updateMode(UpdateMode)` | `ACTIVE_CMA` / `CLASSIC_CMA` / `SEP_CMA` | ACTIVE_CMA | non-null |
+| `restartMode(RestartMode)` | `null`=none / `RestartMode.ipop(n,k)` / `RestartMode.bipop(n)` | null | — |
+| `maxResample(int v)` | Resampling attempts for infeasible points | 0 | >= 0 |
+| `stopFitness(double v)` | Stop when best fitness < v | -∞ | — |
+| `parameterTolerance(double v)` | Step-size convergence tolerance | 1e-11 | > 0 |
+| `functionTolerance(double v)` | Fitness history range tolerance | 1e-12 | > 0 |
+| `maxSigmaRatio(double v)` | Divergence guard (σ·D[i] > v·σ₀) | 1e3 | > 0 |
+| `random(Random r)` | Custom random number generator | new Random() | non-null |
+| `solve()` / `solve(CMAESWorkspace ws)` | Execute optimization, return result | — | — |
+| `workspace()` | Create new uninitialized workspace (for reuse) | — | — |
+
+**UpdateMode** — covariance matrix update strategy:
+
+| Value | Description |
+|-------|-------------|
+| `ACTIVE_CMA` | Full C with Active CMA negative-weight update (default; best on ill-conditioned problems) |
+| `CLASSIC_CMA` | Full C without Active CMA (classic CMA-ES) |
+| `SEP_CMA` | Diagonal C only — sep-CMA-ES, O(n) per iteration, skips O(n²) allocations |
+
+**RestartMode** — multi-start strategy (pass `null` for no restart):
+
+```java
+RestartMode.ipop(maxRestarts, popSizeMultiplier)  // IPOP: λ *= multiplier each restart
+RestartMode.bipop(maxRestarts)                     // BIPOP: alternate large/small populations
+```
+
+### Complete Example
+
+```java
+import com.curioloop.yum4j.optim.*;
+import com.curioloop.yum4j.optim.cmaes.*;
+
+// Basic usage: sphere function
+Optimization result = Minimizer.cmaes()
+    .objective((x, n) -> { double s = 0; for (int i = 0; i < n; i++) s += x[i]*x[i]; return s; })
+    .initialPoint(new double[10])
+    .solve();
+
+// Rosenbrock with tighter tolerances
+Optimization result2 = Minimizer.cmaes()
+    .objective((x, n) -> {
+        double s = 0;
+        for (int i = 0; i < n - 1; i++)
+            s += 100 * Math.pow(x[i+1] - x[i]*x[i], 2) + Math.pow(1 - x[i], 2);
+        return s;
+    })
+    .initialPoint(new double[5])
+    .initialSigma(0.5)
+    .maxEvaluations(50000)
+    .tolFun(1e-10)
+    .solve();
+
+// Rastrigin (multimodal) with IPOP restart
+Optimization result3 = Minimizer.cmaes()
+    .objective((x, n) -> {
+        double s = 10 * n;
+        for (int i = 0; i < n; i++) s += x[i]*x[i] - 10 * Math.cos(2 * Math.PI * x[i]);
+        return s;
+    })
+    .initialPoint(new double[5])
+    .initialSigma(2.0)
+    .restartMode(RestartMode.ipop(9, 2))
+    .maxEvaluations(200000)
+    .bounds(Bound.between(-5.12, 5.12))
+    .solve();
+
+// Workspace reuse for repeated optimizations
+CMAESProblem problem = Minimizer.cmaes()
+    .objective(fn)
+    .initialPoint(new double[n]);
+CMAESWorkspace ws = CMAESProblem.workspace();
+for (double[] x0 : startingPoints) {
+    Optimization r = problem.initialPoint(x0).solve(ws);
+}
+```
+
+
+## 5. SubplexProblem (Subplex Derivative-Free Optimization, Rowan 1990)
+
+`com.curioloop.yum4j.optim.subplex.SubplexProblem`
+
+Derivative-free optimization using the Subplex algorithm: decomposes high-dimensional problems
+into low-dimensional Nelder-Mead subproblems. Works when gradients are unavailable or expensive.
+Supports optional box constraints (l ≤ x ≤ u).
+
+### Constructor
+
+```java
+new SubplexProblem()
+```
+
+### Fluent API Methods
+
+| Method | Description | Default | Constraint |
+|---|---|---|---|
+| `objective(Univariate.Objective f)` | Set objective function (no gradient needed) | — | f != null |
+| `initialPoint(double... x0)` | Set initial point, also infers dimension n | — | non-null, non-empty, all finite |
+| `bounds(Bound... bounds)` | Set variable bounds | null (unbounded) | length must match n |
+| `initialStep(double... step)` | Per-dimension initial step sizes | auto-computed from bounds/x0 | length must match n |
+| `parameterTolerance(double value)` | Convergence tolerance on x | 1e-4 | > 0 |
+| `functionTolerance(double value)` | Convergence tolerance on f | 1e-4 | > 0 |
+| `maxEvaluations(int value)` | Maximum function evaluations | N * 200 | > 0 |
+| `solve()` / `solve(SubplexWorkspace ws)` | Execute optimization, return result | — | — |
+| `workspace()` | Create new uninitialized workspace (for reuse) | — | — |
+
+### Complete Example
+
+```java
+// Basic usage: derivative-free optimization
+Optimization result = new SubplexProblem()
+    .objective((x, n) -> x[0]*x[0] + x[1]*x[1])
+    .initialPoint(1.0, 1.0)
+    .solve();
+
+// High-dimensional with bounds and custom step sizes
+Optimization result2 = Minimizer.subplex()
+    .objective((x, n) -> {
+        double sum = 0;
+        for (int i = 0; i < n - 1; i++)
+            sum += 100 * Math.pow(x[i+1] - x[i]*x[i], 2) + Math.pow(1 - x[i], 2);
+        return sum;
+    })
+    .initialPoint(new double[20])
+    .bounds(...)
+    .initialStep(0.1, 10.0, 0.01, ...)  // different scales per dimension
+    .functionTolerance(1e-8)
+    .maxEvaluations(100000)
+    .solve();
+
+// Workspace reuse for repeated optimizations
+SubplexProblem problem = Minimizer.subplex()
+    .objective(fn)
+    .initialPoint(new double[n]);
+SubplexWorkspace ws = SubplexProblem.workspace();
+for (double[] x0 : startingPoints) {
+    Optimization r = problem.initialPoint(x0).solve(ws);
+}
+```
+
+## 6. LBFGSBProblem (L-BFGS-B Bounded Quasi-Newton Optimization)
+
+`com.curioloop.yum4j.optim.lbfgsb.LBFGSBProblem`
+
+Solves box-constrained optimization: minimize f(x), subject to l ≤ x ≤ u
+
+### Constructor
+
+```java
+new LBFGSBProblem()
+```
+
+### Fluent API Methods
+
+| Method | Description | Default | Constraint |
+|---|---|---|---|
+| `objective(Univariate.Objective f)` | Set objective function, automatically uses CENTRAL numerical gradient (**recommended**); signature: `(x, n) -> double` | — | f != null |
+| `objective(Univariate f)` | Set objective function with analytic gradient; signature: `(x, n, g) -> double` | — | f != null |
+| `objective(NumericalGradient grad, Univariate.Objective f)` | Specify numerical gradient method | — | — |
+| `initialPoint(double... x0)` | Set initial point, also infers dimension n | — | non-null, non-empty |
+| `bounds(Bound... bounds)` | Set variable bounds | null (unbounded) | length must match n |
+| `maxIterations(int value)` | Maximum number of iterations | 15000 | > 0 |
+| `maxEvaluations(int value)` | Maximum function evaluations | 15000 | > 0 |
+| `gradientTolerance(double value)` | Projected gradient convergence tolerance pgtol | 1e-5 | > 0 |
+| `functionTolerance(double value)` | Function value change tolerance ftol | 1e7·ε ≈ 2.22e-9 | > 0 |
+| `corrections(int m)` | L-BFGS correction number (memory parameter) | 10 | > 0, typical range 3-20 |
+| `maxLineSearchSteps(int value)` | Maximum line search steps per iteration | 20 | > 0 |
+| `maxComputations(Duration value)` | Maximum computation time | null (unlimited) | non-negative |
+| `solve()` / `solve(LBFGSBWorkspace ws)` | Execute optimization, return result | — | — |
+| `workspace()` | Create new uninitialized workspace (for reuse) | — | — |
+
+### Complete Example
+
+```java
+// Basic usage: unconstrained optimization
+Optimization result = new LBFGSBProblem()
+    .objective((x, n) -> x[0]*x[0] + x[1]*x[1])
+    .initialPoint(1.0, 1.0)
+    .solve();
+
+if (result.status().converged()) {
+    double[] sol = result.solution(); // [0.0, 0.0]
+}
+
+// Advanced usage: box constraints + analytic gradient
+Optimization result2 = new LBFGSBProblem()
+    .objective((x, n, g) -> {
+        double f = x[0]*x[0] + x[1]*x[1];
+        if (g != null) { g[0] = 2*x[0]; g[1] = 2*x[1]; }
+        return f;
+    })
+    .bounds(Bound.atLeast(0), Bound.atLeast(0))
+    .initialPoint(1.0, 1.0)
+    .maxIterations(200)
+    .gradientTolerance(1e-10)
+    .solve();
+
+// Workspace reuse (high-frequency optimization scenarios)
+LBFGSBProblem problem = new LBFGSBProblem()
+    .objective((x, n) -> x[0]*x[0])
+    .initialPoint(1.0);
+LBFGSBWorkspace ws = LBFGSBProblem.workspace();
+for (double[] point : points) {
+    Optimization r = problem.initialPoint(point).solve(ws);
+}
+```
+
+
+## 7. SLSQPProblem (SLSQP Sequential Least Squares Programming)
+
+`com.curioloop.yum4j.optim.slsqp.SLSQPProblem`
+
+Solves general constrained optimization: minimize f(x), subject to c_eq(x) = 0, c_ineq(x) >= 0, l ≤ x ≤ u
+
+### Constructor
+
+```java
+new SLSQPProblem()
+```
+
+### Fluent API Methods
+
+| Method | Description | Default | Constraint |
+|---|---|---|---|
+| `objective(Univariate.Objective f)` | Set objective function, automatically uses CENTRAL numerical gradient (**recommended**); signature: `(x, n) -> double` | — | f != null |
+| `objective(Univariate f)` | Set objective function with analytic gradient; signature: `(x, n, g) -> double` | — | f != null |
+| `equalityConstraints(Univariate.Objective... c)` | Equality constraints c(x) = 0, automatic numerical gradient; signature: `(x, n) -> double` | — | — |
+| `equalityConstraints(Univariate... c)` | Equality constraints with analytic gradient; signature: `(x, n, g) -> double` | — | — |
+| `inequalityConstraints(Univariate.Objective... c)` | Inequality constraints c(x) >= 0, automatic numerical gradient; signature: `(x, n) -> double` | — | — |
+| `inequalityConstraints(Univariate... c)` | Inequality constraints with analytic gradient; signature: `(x, n, g) -> double` | — | — |
+| `initialPoint(double... x0)` | Set initial point | — | non-null, non-empty |
+| `bounds(Bound... bounds)` | Set variable bounds | null | length must match n |
+| `functionTolerance(double value)` | Primary convergence tolerance | 1e-6 | > 0 |
+| `maxIterations(int value)` | Maximum number of iterations | 100 | > 0 |
+| `maxEvaluations(int value)` | Maximum function evaluations | 1000 | > 0 |
+| `solve()` / `solve(SLSQPWorkspace ws)` | Execute optimization, return result | — | — |
+| `workspace()` | Create new uninitialized workspace (for reuse) | — | — |
+
+### Complete Example
+
+```java
+// Equality constraint: minimize x[0]^2 + x[1]^2, subject to x[0] + x[1] = 1
+Optimization result = new SLSQPProblem()
+    .objective((x, n) -> x[0]*x[0] + x[1]*x[1])
+    .equalityConstraints((x, n) -> x[0] + x[1] - 1)
+    .initialPoint(0.5, 0.5)
+    .solve();
+// solution: [0.5, 0.5]
+
+// Mixed constraints + analytic gradient
+Optimization result2 = new SLSQPProblem()
+    .objective((x, n, g) -> {
+        double f = x[0]*x[0] + x[1]*x[1];
+        if (g != null) { g[0] = 2*x[0]; g[1] = 2*x[1]; }
+        return f;
+    })
+    .equalityConstraints((x, n, g) -> {
+        if (g != null) { g[0] = 1; g[1] = 1; }
+        return x[0] + x[1] - 1;
+    })
+    .inequalityConstraints((x, n) -> x[0] - 0.1)  // x[0] >= 0.1
+    .bounds(Bound.atLeast(0), Bound.atLeast(0))
+    .initialPoint(0.5, 0.5)
+    .functionTolerance(1e-8)
+    .solve();
+```
+
+
+## 8. TRFProblem (TRF Trust Region Reflective Least Squares)
+
+`com.curioloop.yum4j.optim.trf.TRFProblem`
+
+Solves bounded nonlinear least-squares: min F(x) = ½‖f(x)‖², subject to lb ≤ x ≤ ub
+
+Requires m >= n (number of residuals >= number of parameters).
+
+### Constructor
+
+```java
+new TRFProblem()
+```
+
+### Fluent API Methods
+
+| Method | Description | Default | Constraint |
+|---|---|---|---|
+| `residuals(Multivariate.Objective fn, int m)` | Set residual function, automatically uses CENTRAL numerical Jacobian (**recommended**); signature: `(x, n, r, m) -> void` | — | m > 0 |
+| `residuals(NumericalJacobian jac, Multivariate.Objective fn, int m)` | Specify numerical Jacobian method | — | m > 0 |
+| `objective(Multivariate f)` | Set multivariate function with analytic Jacobian; signature: `(x, n, r, m, jac) -> void` | — | — |
+| `initialPoint(double... x0)` | Set initial point, infers n | — | non-null, non-empty |
+| `bounds(Bound... bounds)` | Set variable bounds | null | — |
+| `functionTolerance(double value)` | Function (chi-squared) convergence tolerance | 1e-8 | > 0 |
+| `parameterTolerance(double value)` | Coefficient (step size) convergence tolerance | 1e-8 | > 0 |
+| `gradientTolerance(double value)` | Gradient convergence tolerance | 1e-8 | > 0 |
+| `maxEvaluations(int value)` | Maximum function evaluations | 100*n | > 0 |
+| `loss(RobustLoss)` | Robust loss function | LINEAR | non-null |
+| `lossScale(double)` | Soft margin C for loss scaling | 1.0 | > 0 |
+| `solve()` / `solve(TRFWorkspace ws)` | Execute optimization, return result | — | requires m >= n |
+| `workspace()` | Create new uninitialized workspace (for reuse) | — | — |
+
+### Complete Example
+
+```java
+// Basic usage: fit y = a * exp(-b * t)
+double[] tData = {0.0, 1.0, 2.0, 3.0};
+double[] yData = {2.0, 1.2, 0.7, 0.4};
+
+Optimization result = new TRFProblem()
+    .residuals((x, n, r, m) -> {
+        for (int i = 0; i < tData.length; i++) {
+            r[i] = yData[i] - x[0] * Math.exp(-x[1] * tData[i]);
+        }
+    }, tData.length)
+    .bounds(Bound.atLeast(0), Bound.atLeast(0))
+    .initialPoint(1.0, 0.5)
+    .functionTolerance(1e-10)
+    .solve();
+
+double a = result.solution()[0];
+double b = result.solution()[1];
+
+// Simple example: find the point where residuals are zero
+Optimization r2 = new TRFProblem()
+    .residuals((x, n, r, m) -> { r[0] = x[0] - 1; r[1] = x[1] - 2; }, 2)
+    .initialPoint(0.0, 0.0)
+    .solve();
+// solution: [1.0, 2.0]
+```
+
+
+## 9. RootFinder (Root-Finding Entry Point)
+
+`com.curioloop.yum4j.optim.RootFinder`
+
+Provides static factory methods for 1-D and N-D root finding.
+
+### Static Factory Methods
+
+```java
+RootFinder.brentq(DoubleUnaryOperator f)                        // → BrentqProblem
+RootFinder.hybr(Multivariate.Objective fn, int n)               // → HYBRProblem
+RootFinder.broyden(Multivariate.Objective fn, int n)            // → BroydenProblem
+```
+
+### BrentqProblem (1-D Brent's method)
+
+| Method | Description | Default |
+|---|---|---|
+| `bracket(Bound)` | Search interval via `Bound.between(a,b)`, requires f(a)·f(b) ≤ 0 | — (required) |
+| `absoluteTolerance(double)` | Absolute convergence tolerance | 2e-12 |
+| `relativeTolerance(double)` | Relative convergence tolerance | 4 * ε |
+| `maxIterations(int)` | Maximum iterations | 100 |
+| `solve()` | Execute, return Optimization | — |
+
+### HYBRProblem (N-D Powell hybrid, MINPACK hybrd)
+
+| Method | Description | Default |
+|---|---|---|
+| `equations(Multivariate.Objective, int n)` | System of equations F(x) = 0; signature: `(x, n, f, m) -> void` | — (required) |
+| `jacobian(NumericalJacobian)` | Numerical Jacobian method | FORWARD |
+| `functionTolerance(double)` | Convergence tolerance ‖F(x)‖₂ ≤ ftol | 1.49e-8 |
+| `maxEvaluations(int)` | Maximum function evaluations | 200*(n+1) |
+| `initialPoint(double...)` | Initial point | — (required) |
+| `solve()` / `solve(HYBRWorkspace ws)` | Execute, return Optimization | — |
+| `workspace()` | Create new uninitialized HYBRWorkspace (for reuse) | — |
+
+### BroydenProblem (N-D Broyden's method, Jacobian-free)
+
+| Method | Description | Default |
+|---|---|---|
+| `equations(Multivariate.Objective, int n)` | System of equations F(x) = 0; signature: `(x, n, f, m) -> void` | — (required) |
+| `functionTolerance(double)` | Convergence tolerance ‖F(x)‖₂ ≤ ftol | 1.49e-8 |
+| `maxEvaluations(int)` | Maximum iterations | 100*(n+1) |
+| `initialPoint(double...)` | Initial point | — (required) |
+| `solve()` / `solve(BroydenWorkspace ws)` | Execute, return Optimization | — |
+| `workspace()` | Create new uninitialized BroydenWorkspace (for reuse) | — |
+
+### Complete Example
+
+```java
+// 1-D: find root of sin(x) in [3, 4] → π
+Optimization r1 = RootFinder.brentq(Math::sin)
+    .bracket(Bound.between(3.0, 4.0))
+    .solve();
+double root = r1.root(); // ≈ 3.14159...
+
+// N-D: HYBR, forward-difference Jacobian (default)
+Optimization r2 = RootFinder.hybr((x, n, f, m) -> {
+        f[0] = x[0]*x[0] - 2;
+        f[1] = x[1] - x[0];
+    }, 2)
+    .initialPoint(1.0, 1.0)
+    .solve();
+double[] sol = r2.solution(); // [√2, √2]
+
+// N-D: HYBR + central difference (higher accuracy)
+Optimization r3 = RootFinder.hybr(fn, 2)
+    .jacobian(NumericalJacobian.CENTRAL)
+    .initialPoint(1.0, 1.0)
+    .solve();
+
+// N-D: Broyden (Jacobian-free)
+Optimization r4 = RootFinder.broyden(fn, 2)
+    .initialPoint(1.0, 1.0)
+    .solve();
+
+// Workspace reuse (high-frequency root-finding)
+HYBRProblem finder = RootFinder.hybr(fn, n).initialPoint(x0);
+HYBRWorkspace ws = HYBRProblem.workspace();
+for (double[] pt : points) {
+    Optimization r = finder.initialPoint(pt).solve(ws);
+}
+```
+
+
+## 10. Optimization API
+
+`com.curioloop.yum4j.optim.Optimization`
+
+Return value of all Problem.solve() methods.
+
+### Methods
+
+```java
+// Core results
+double[]            solution()          // Solution vector (non-null when using Problem.solve())
+double              root()              // Scalar root for 1-D root-finding (NaN for N-D / minimizers)
+double              cost()              // Objective / residual-norm value at termination
+Optimization.Status status()            // Optimization status enum
+int                 iterations()        // Number of iterations
+int                 evaluations()       // Number of function evaluations
+
+// Diagnostic methods
+boolean  status().converged() // Whether converged
+String   summary()            // Single-line summary: "Status: ... | Cost: ... | Iterations: ... | Evaluations: ..."
+String   errorMessage()       // Returns "reason. suggestion" on error, null otherwise
+String   toString()        // Multi-line structured diagnostic output
+```
+
+### Usage Example
+
+```java
+Optimization r = Minimizer.lbfgsb()
+    .objective((x, n) -> x[0]*x[0] + x[1]*x[1])
+    .initialPoint(1.0, 1.0)
+    .solve();
+
+if (r.status().converged()) {
+    System.out.println(Arrays.toString(r.solution()));
+    System.out.println(r.summary());
+    // "Status: Converged: gradient norm below tolerance | Cost: 0.000000e+00 | Iterations: 2 | Evaluations: 6"
+} else {
+    System.out.println(r.errorMessage()); // Error reason and suggestion
+    System.out.println(r.toString());        // Full diagnostic info
+}
+```
+
+### toString() Output Format
+
+```
+Optimization {
+  status: Converged: gradient norm below tolerance
+  cost: 0.0
+  iterations: 2
+  evaluations: 6
+}
+```
+
+When not converged, additionally includes:
+```
+  suggestion: Consider increasing maxIterations or relaxing tolerances
+```
+
+
+## 11. Optimization.Status Enum
+
+`com.curioloop.yum4j.optim.Optimization.Status`
+
+Status is now an inner enum of `Optimization`. Reference it as `Optimization.Status` or via `result.status()`.
+
+### Enum Values
+
+| Enum Value | code | converged | Description | Suggestion |
+|---|---|---|---|---|
+| `GRADIENT_TOLERANCE_REACHED` | 3 | true | Converged: gradient norm below tolerance | null |
+| `FUNCTION_TOLERANCE_REACHED` | 4 | true | Converged: function value change below tolerance | null |
+| `COEFFICIENT_TOLERANCE_REACHED` | 6 | true | Converged: variable change below tolerance | null |
+| `CHI_SQUARED_TOLERANCE_REACHED` | 7 | true | Converged: chi-squared reduction below tolerance | null |
+| `MAX_ITERATIONS_REACHED` | 1 | false | Maximum iterations reached without convergence | Consider increasing maxIterations or relaxing tolerances |
+| `MAX_EVALUATIONS_REACHED` | 2 | false | Maximum function evaluations reached | Consider increasing maxEvaluations |
+| `MAX_COMPUTATIONS_REACHED` | 5 | false | Maximum computation time reached | Consider increasing maxComputations or simplifying the objective |
+| `ABNORMAL_TERMINATION` | -1 | false | Abnormal termination due to internal error | Check objective function for numerical issues (NaN, Infinity) |
+| `INVALID_ARGUMENT` | -2 | false | Invalid argument provided to optimizer | Verify all parameters satisfy documented constraints |
+| `CONSTRAINT_INCOMPATIBLE` | -3 | false | Constraints are incompatible or infeasible | Check that constraints do not contradict each other |
+| `LINE_SEARCH_FAILED` | -4 | false | Line search failed to find acceptable step | Check objective function continuity and gradient accuracy |
+| `CALLBACK_ERROR` | -5 | false | Error in callback function evaluation | Check objective/constraint functions for exceptions |
+| `INVALID_BRACKET` | -6 | false | Bracket condition f(a)*f(b) <= 0 not satisfied | Verify the bracket [a,b] contains a root |
+| `INVALID_INPUT` | -7 | false | Initial point or function output contains NaN or Infinity | Provide finite initial values and check function for numerical issues |
+
+### Methods
+
+```java
+int     code()          // Numeric status code
+String  description()   // Human-readable description (non-null)
+String  suggestion()    // Suggested action (null for converged states)
+boolean converged()     // Whether converged successfully
+boolean limitReached()  // Whether a resource limit was reached (code 1, 2, 5)
+boolean error()         // Whether an error occurred (code < 0)
+static Status fromCode(int code) // Look up by numeric code; returns ABNORMAL_TERMINATION if not found
+```
+
+
+## 12. Validation Exceptions
+
+Problem builders throw standard Java exceptions when required parameters are missing or invalid:
+
+| Scenario | Exception | Message |
+|---|---|---|
+| Missing required parameter (objective, initialPoint, residuals) | `IllegalStateException` | `{param} is required. Call .{method}() before .solve().` |
+| Initial point contains NaN or Infinity | `IllegalArgumentException` | `initialPoint[{i}] is {NaN/Infinity}. All initial values must be finite.` |
+| Parameter value violates constraint (e.g. negative tolerance) | `IllegalArgumentException` | `{param} must be {constraint}, got {value}.` |
+
+### Usage Example
+
+```java
+try {
+    Optimization r = new SubplexProblem()
+        .objective((x, n) -> x[0]*x[0])
+        // forgot to set initialPoint
+        .solve();
+} catch (IllegalStateException e) {
+    System.out.println(e.getMessage());
+    // "initialPoint is required. Call .initialPoint(x0) before .solve()."
+}
+```
+
+
+## 13. Bound Factory Methods
+
+`com.curioloop.yum4j.optim.Bound`
+
+Defines upper and lower bound constraints for optimization variables.
+
+### Factory Methods
+
+```java
+Bound.unbounded()              // x ∈ (-∞, +∞), no constraint (default)
+Bound.between(lower, upper)    // lower ≤ x ≤ upper
+Bound.atLeast(lower)           // x ≥ lower
+Bound.atMost(upper)            // x ≤ upper
+Bound.exactly(value)           // x = value (fixed variable)
+Bound.nonNegative()            // x ≥ 0 (equivalent to atLeast(0))
+Bound.nonPositive()            // x ≤ 0 (equivalent to atMost(0))
+new Bound(lower, upper)        // public constructor; use Double.NaN for no bound on that side (for serialization / reflection)
+```
+
+### Usage Example
+
+```java
+// Set bounds for each variable individually
+new LBFGSBProblem()
+    .objective((x, n) -> x[0]*x[0] + x[1]*x[1] + x[2]*x[2])
+    .bounds(
+        Bound.between(0, 10),   // 0 <= x[0] <= 10
+        Bound.atLeast(1),       // x[1] >= 1
+        Bound.atMost(5)         // x[2] <= 5
+    )
+    .initialPoint(1.0, 2.0, 3.0)
+    .solve();
+
+// Probability parameter (between 0 and 1)
+Bound prob = Bound.between(0, 1);
+
+// Non-negative parameter (e.g. mass, length)
+Bound positive = Bound.nonNegative();
+```
+
+
+## 14. NumericalGradient
+
+`com.curioloop.yum4j.optim.NumericalGradient`
+
+Provides numerical gradient computation for scalar functions ℝⁿ → ℝ.
+
+### Method Comparison
+
+| Method | Formula | Accuracy Order | Evaluations per Dimension | Recommended Scenario |
+|---|---|---|---|---|
+| `FORWARD` | (f(x+h) - f(x)) / h | O(h) ≈ 1e-8 | 1 (+1 base) | Fast evaluation, low accuracy requirement |
+| `BACKWARD` | (f(x) - f(x-h)) / h | O(h) ≈ 1e-8 | 1 (+1 base) | Function more stable at smaller x |
+| `CENTRAL` | (f(x+h) - f(x-h)) / (2h) | O(h²) ≈ 1e-11 | 2 | **Default choice**, balanced accuracy/speed |
+| `FIVE_POINT` | (-f(x+2h)+8f(x+h)-8f(x-h)+f(x-2h)) / (12h) | O(h⁴) ≈ 1e-15 | 4 | Highest accuracy, when evaluations are not the bottleneck |
+
+### Step Sizes
+
+- FORWARD/BACKWARD: h = √ε · max(1, |xᵢ|) ≈ 1.49e-8 · scale
+- CENTRAL: h = ∛ε · max(1, |xᵢ|) ≈ 6.06e-6 · scale
+- FIVE_POINT: h = ε^(1/4) · max(1, |xᵢ|) ≈ 1.22e-4 · scale
+
+### Usage
+
+```java
+// Wrap as Univariate (for use with Problem.objective(Univariate))
+Univariate f = NumericalGradient.CENTRAL.wrap((x, n) -> x[0]*x[0] + x[1]*x[1]);
+
+// Use directly in Problem (equivalent to above)
+new LBFGSBProblem()
+    .objective((x, n) -> x[0]*x[0] + x[1]*x[1])  // automatically uses CENTRAL
+    .initialPoint(1.0, 1.0)
+    .solve();
+
+// Specify gradient method explicitly
+new LBFGSBProblem()
+    .objective(NumericalGradient.FIVE_POINT, (x, n) -> x[0]*x[0] + x[1]*x[1])
+    .initialPoint(1.0, 1.0)
+    .solve();
+```
+
+
+## 15. NumericalJacobian
+
+`com.curioloop.yum4j.optim.NumericalJacobian`
+
+Provides numerical Jacobian matrix computation for vector-valued functions ℝⁿ → ℝᵐ.
+
+### Method Comparison
+
+| Method | Formula | Accuracy | Evaluations | Recommended Scenario |
+|---|---|---|---|---|
+| `FORWARD` | J[i,j] = (r(x+h·eⱼ)[i] - r(x)[i]) / h | O(h) ≈ 1e-8 | n+1 | Fast, low accuracy requirement |
+| `CENTRAL` | J[i,j] = (r(x+h·eⱼ)[i] - r(x-h·eⱼ)[i]) / (2h) | O(h²) ≈ 1e-11 | 2n | **Default choice**, higher accuracy |
+
+### Jacobian Storage Format (Row-Major)
+
+```
+jacobian[i*n + j] = ∂r[i]/∂x[j]
+
+where:
+  i = residual index (0 to m-1)
+  j = parameter index (0 to n-1)
+  total length = m * n
+```
+
+### wrap() Method Parameters
+
+```java
+Multivariate wrap(Multivariate.Objective func, int m, int n)
+```
+
+- `func`: residual function `(x, n, r, m) -> void`; only `x[0..n-1]` are read, only `r[0..m-1]` are written
+- `m`: number of residuals (output dimension), must satisfy m >= n
+- `n`: number of parameters (input dimension)
+
+### Usage Example
+
+```java
+// Direct usage (TRFProblem calls this internally)
+Multivariate.Objective residuals = (x, n, r, m) -> {
+    r[0] = x[0] - 1;
+    r[1] = x[1] - 2;
+};
+
+// Automatically uses CENTRAL (recommended)
+new TRFProblem()
+    .residuals(residuals, 2)
+    .initialPoint(0.0, 0.0)
+    .solve();
+
+// Manually specify Jacobian method
+Multivariate eval = NumericalJacobian.CENTRAL.wrap(residuals, 2, 2);
+```
+
+
+## 16. Common Issues and Error Handling
+
+### Issue 1: Missing Required Parameters
+
+```java
+// Wrong: initialPoint not set — LBFGSBProblem throws IllegalStateException
+try {
+    new LBFGSBProblem()
+        .objective((x, n) -> x[0]*x[0])
+        .solve();
+} catch (IllegalStateException e) {
+    // initialPoint is required. Call .initialPoint(x0) before .solve().
+}
+
+// SubplexProblem / TRFProblem also throw IllegalStateException
+try {
+    new SubplexProblem()
+        .objective((x, n) -> x[0]*x[0])
+        .solve();
+} catch (IllegalStateException e) {
+    // initialPoint is required. Call .initialPoint(x0) before .solve().
+}
+
+// Correct
+new LBFGSBProblem()
+    .objective((x, n) -> x[0]*x[0])
+    .initialPoint(1.0)
+    .solve();
+```
+
+### Issue 2: Initial Point Contains NaN or Infinity
+
+```java
+// LBFGSBProblem throws IllegalArgumentException
+try {
+    new LBFGSBProblem()
+        .objective((x, n) -> x[0]*x[0])
+        .initialPoint(Double.NaN)
+        .solve();
+} catch (IllegalArgumentException e) {
+    // initialPoint[0] is NaN. All initial values must be finite.
+}
+
+// SubplexProblem / TRFProblem also throw IllegalArgumentException
+try {
+    new SubplexProblem()
+        .objective((x, n) -> x[0]*x[0])
+        .initialPoint(Double.NaN)
+        .solve();
+} catch (IllegalArgumentException e) {
+    // initialPoint[0] is NaN. All initial values must be finite.
+}
+```
+
+### Issue 3: Parameter Validation Failure (Immediate Feedback)
+
+```java
+// These errors throw IllegalArgumentException immediately when setting parameters
+LBFGSBProblem problem = new LBFGSBProblem();
+
+problem.objective(null);          // "objective function must not be null"
+problem.initialPoint();           // "initialPoint must not be null or empty"
+problem.maxIterations(-1);        // "maxIterations must be positive, got -1"
+problem.maxEvaluations(0);        // "maxEvaluations must be positive, got 0"
+problem.gradientTolerance(-1e-6); // "gradientTolerance must be positive, got -1.0E-6"
+
+// Bounds length mismatch (after setting initialPoint)
+problem.initialPoint(1.0, 2.0);
+problem.bounds(Bound.atLeast(0)); // "bounds.length=1 but dimension=2"
+```
+
+### Issue 4: Insufficient TRF Residuals
+
+```java
+// solve() throws IllegalStateException when m < n
+try {
+    new TRFProblem()
+        .residuals((x, n, r, m) -> { r[0] = x[0] - 1; }, 1)  // m=1
+        .initialPoint(0.0, 0.0)                          // n=2
+        .solve();
+} catch (IllegalStateException e) {
+    // "Cannot solve: need m >= n (residuals >= parameters), got m=1, n=2"
+}
+```
+
+### Issue 5: Optimization Did Not Converge
+
+```java
+Optimization r = new LBFGSBProblem()
+    .objective((x, n) -> x[0]*x[0])
+    .initialPoint(1.0)
+    .maxIterations(1)  // intentionally small
+    .solve();
+
+if (!r.status().converged()) {
+    System.out.println(r.status());       // MAX_ITERATIONS_REACHED(1)
+    System.out.println(r.errorMessage()); // null (not an error state)
+    System.out.println(r.toString());
+    // Optimization {
+    //   status: Maximum iterations reached without convergence
+    //   cost: ...
+    //   iterations: 1
+    //   evaluations: ...
+    //   suggestion: Consider increasing maxIterations or relaxing tolerances
+    // }
+}
+```
+
+### Issue 6: Incompatible Constraints
+
+```java
+// SLSQP returns CONSTRAINT_INCOMPATIBLE when constraints conflict
+Optimization r = new SLSQPProblem()
+    .objective((x, n) -> x[0])
+    .equalityConstraints((x, n) -> x[0] - 1)   // x[0] = 1
+    .equalityConstraints((x, n) -> x[0] - 2)   // x[0] = 2 (contradiction)
+    .initialPoint(0.0)
+    .solve();
+
+if (r.status().error()) {
+    System.out.println(r.errorMessage());
+    // "Constraints are incompatible or infeasible. Check that constraints do not contradict each other"
+}
+```
+
+### Performance Tips
+
+1. **Use analytic gradients**: When the objective function gradient can be derived manually, using the `Univariate` interface is 2-4x faster than numerical gradients
+2. **Reuse workspaces**: When solving the same-dimension problem multiple times in a loop, use `XxxProblem.workspace()` to create a workspace and pass it to `solve(ws)`
+3. **Choose the right gradient method**: `CENTRAL` is the default; if function evaluation is expensive, consider `FORWARD`
+4. **Set reasonable tolerances**: Overly tight tolerances increase iteration count; `gradientTolerance(1e-6)` is usually sufficient
+
+```java
+// High-performance mode: analytic gradient + workspace reuse
+LBFGSBProblem problem = new LBFGSBProblem()
+    .objective((x, n, g) -> {
+        double f = 0;
+        for (int i = 0; i < n; i++) {
+            f += x[i] * x[i];
+            if (g != null) g[i] = 2 * x[i];
+        }
+        return f;
+    })
+    .initialPoint(new double[n]);
+
+LBFGSBWorkspace ws = LBFGSBProblem.workspace();
+for (double[] startPoint : startPoints) {
+    Optimization r = problem.initialPoint(startPoint).solve(ws);
+    // process r
+}
+```
+
+
+## 17. Regressor (Linear Regression)
+
+`com.curioloop.yum4j.linalg.Regressor`
+
+Facade for ordinary and weighted least squares regression. Solves the linear model y = Xβ + ε with optional per-observation weights. X is row-major n×k; **both OLS and WLS overwrite X in-place**. y is never modified. WLS additionally writes whitened ỹ into `WLS.Pool.yWhiten`.
+
+### Package
+
+```
+com.curioloop.yum4j.linalg          # Regression (abstract base), Regressor (facade)
+com.curioloop.yum4j.linalg.reg      # OLS, WLS, Prediction
+```
+
+### Algorithm Selection
+
+| Solver | Opt | When to use |
+|---|---|---|
+| SVD / pseudoinverse | `Opts.PINV` | Default choice — numerically robust, handles rank-deficient X |
+| QR factorization | `Opts.QR` | Faster when X is known to be full rank |
+
+### Factory Methods
+
+```java
+// OLS — ordinary least squares
+OLS Regressor.ols(double[] y, double[] X, int n, int k, Opts... opts)
+OLS Regressor.ols(double[] y, double[] X, int n, int k, Pool ws, Opts... opts)
+
+// WLS — weighted least squares
+WLS Regressor.wls(double[] y, double[] X, double[] weights, int n, int k, Opts... opts)
+WLS Regressor.wls(double[] y, double[] X, double[] weights, int n, int k, Pool ws, Opts... opts)
+```
+
+Parameters:
+- `y` — endogenous vector, length ≥ n, not modified
+- `X` — exogenous matrix, row-major n×k, **overwritten in-place** by the solver
+- `weights` — observation weights, length ≥ n, all positive, not modified (WLS only)
+- `n` — number of observations
+- `k` — number of regressors (including intercept column if present)
+- `ws` — reusable workspace (optional; created internally if null)
+- `opts` — one or more `Regressor.Opts` values; `QR` or `PINV` is required
+
+### Opts Enum
+
+```java
+Regressor.Opts.QR              // QR factorization solver
+Regressor.Opts.PINV            // SVD pseudoinverse solver
+Regressor.Opts.HAS_CONST  // declare X has a constant column; sets kConst=1, skips detection
+Regressor.Opts.NO_CONST   // declare X has no constant column; sets kConst=0, skips detection
+```
+
+### Regression Result API (abstract base of OLS / WLS)
+
+`com.curioloop.yum4j.linalg.Regression`
+
+All quantities are computed lazily and cached on first access.
+
+```java
+// ---- params ----
+double[]   params()                  // β̂, length k
+double[]   bse()                     // standard errors √diag(Cov(β̂)), length k
+double[]   paramCov()                // Cov(β̂) = σ̂²·(XᵀX)⁻¹, k×k row-major (new array each call)
+
+// ---- fitted values and residuals ----
+double[]   fitted(boolean whiten)    // ŷ = Xβ̂; if whiten=true and WLS, returns √W·ŷ
+double[]   residual(boolean whiten)  // e = y − ŷ; if whiten=true and WLS, returns √W·e
+
+// ---- sum of squares ----
+double     ssr()                     // sum of squared (whitened) residuals ‖ẽ‖²
+double     tss(boolean centered)     // total sum of squares (centered or uncentered)
+double     ess()                     // explained sum of squares = TSS − SSR
+
+// ---- scale and covariance ----
+double     scale()                   // σ̂² = SSR / (n − rank)
+
+// ---- goodness of fit ----
+double     r2(boolean adjusted)      // R² or adjusted R²
+double[]   mse()                     // double[3] = {MSE_model, MSE_residual, MSE_total}
+
+// ---- information criteria ----
+double     logLike()                 // Gaussian log-likelihood
+double     aic()                     // AIC = −2·llf + 2·(dfModel + kConst)
+double     bic()                     // BIC = −2·llf + log(n)·(dfModel + kConst)
+
+// ---- prediction ----
+Prediction predict(double[] newX, int m, double[] weights)
+
+// ---- dimensions and diagnostics ----
+int        nObs()                    // number of observations n
+int        nParams()                 // number of regressors k
+int        kConst()                  // 1 if intercept detected/present, 0 otherwise
+int        rank()                    // numerical rank of X
+double     condNum()                 // condition number √(σ_max²/σ_min²)
+```
+
+### Prediction
+
+`com.curioloop.yum4j.linalg.reg.Prediction`
+
+Returned by `Regression.predict(newX, m, weights)`.
+
+```java
+// mean is computed eagerly (single dgemv); paramVar and residualVar are lazy (computed on first call)
+double[]   mean()          // ŷ = newX·β̂, length m
+double[]   paramVar()      // xᵢᵀ·Cov(β̂)·xᵢ per observation (parameter uncertainty), lazy
+double[]   residualVar()   // σ̂²/wᵢ per observation (residual uncertainty), lazy
+
+// Prediction interval: lb[i] = mean[i] − Q·std[i],  ub[i] = mean[i] + Q·std[i]
+// where std[i] = √(residualVar[i] + paramVar[i]),  Q = t_{dfResidual, 1−alpha/2}
+double[][] confInt(double alpha)     // returns double[3][] = {lb, ub, std}
+
+// Utility: t-distribution quantile (Cornish-Fisher + Newton-Raphson)
+static double tQuantile(int df, double p)
+static double normalQuantile(double p)
+```
+
+### Pool (Workspace Reuse)
+
+`com.curioloop.yum4j.linalg.reg.OLS.Pool` / `com.curioloop.yum4j.linalg.reg.WLS.Pool`
+
+Reusable workspace that eliminates per-fit allocations. Buffers grow on demand.
+
+`OLS.Pool` fields:
+```java
+public double[] work;        // LAPACK floating-point scratch
+public int[]    ipiv;        // pivot indices for QR path
+public double[] beta;        // β̂ output, length k
+public double[] unscaledCov; // (X'X)^-1, length k×k
+public double[] fitted;      // y^ = X*beta^, length n
+public double[] residual;    // e = y - y^, length n
+```
+
+`WLS.Pool` extends `OLS.Pool` with one additional field:
+```java
+public double[] yWhiten;     // ỹ = sqrt(W)*y, length n (WLS only)
+```
+
+Obtain a correctly-typed pool via `model.alloc()`:
+```java
+OLS.Pool ws = new OLS.Pool();   // for OLS
+WLS.Pool ws = new WLS.Pool();   // for WLS (includes yWhiten)
+```
+
+### Complete Example
+
+```java
+import com.curioloop.yum4j.linalg.*;
+import com.curioloop.yum4j.linalg.reg.*;
+
+int n = 50, k = 2;
+
+// Build X = [x, 1] row-major n×2
+double[] X = new double[n * k];
+for (int i = 0; i < n; i++) { X[i*k] = xVec[i]; X[i*k+1] = 1.0; }
+
+// OLS with SVD solver
+OLS r = Regressor.ols(y, X, n, k, Regressor.Opts.PINV);
+
+double[] beta = r.params();       // [slope, intercept]
+double[] bse  = r.bse();          // standard errors
+double   r2   = r.r2(false);      // R²
+double   r2a  = r.r2(true);       // adjusted R²
+double   llf  = r.logLike();
+double   aic  = r.aic();
+double   bic  = r.bic();
+double   sig2 = r.scale();        // σ̂²
+
+double[] fitted   = r.fitted(false);
+double[] residual = r.residual(false);
+
+// Prediction interval (95%)
+Prediction pred = r.predict(X, n, null);
+double[][] ci   = pred.confInt(0.05);
+// ci[0] = lower bounds, ci[1] = upper bounds, ci[2] = std errors
+
+// WLS with per-observation weights (X is overwritten in-place)
+double[] weights = new double[n];
+Arrays.fill(weights, 1.0);
+WLS rw = Regressor.wls(y, X.clone(), weights, n, k, Regressor.Opts.PINV);
+
+// Workspace reuse across multiple fits
+OLS.Pool ws = new OLS.Pool();
+for (double[] yi : series) {
+    OLS ri = Regressor.ols(yi, buildX(), n, k, ws, Regressor.Opts.PINV);
+    // process ri.params(), ri.r2(false), etc.
+}
+```
+
+### Intercept Detection
+
+By default, `Regressor` scans X for a constant column (intercept). The result is stored in `kConst()`:
+- `kConst() == 1` — intercept present (affects R², AIC/BIC, adjusted R²)
+- `kConst() == 0` — no intercept
+
+Pass `Opts.HAS_CONST` or `Opts.NO_CONST` to skip detection and explicitly set kConst to 1 or 0.
+
+Detection uses a fast O(nk) scan; falls back to SVD rank comparison only when ambiguous.
+
+### OLS / WLS Direct Construction
+
+You can also construct `OLS`/`WLS` directly without the `Regressor` facade:
+
+```java
+// Single constructor — full control
+// kConst: -1 = auto-detect (default), 0 = no constant, 1 = has constant
+new OLS(double[] y, double[] X, int n, int k, boolean useQR, int kConst)
+new WLS(double[] y, double[] X, double[] weights, int n, int k, boolean useQR, int kConst)
+
+// Fit — X is overwritten in-place for both OLS and WLS
+OLS result = new OLS(y, X, n, k, false, -1).fit();
+OLS result = new OLS(y, X, n, k, false, -1).fit(ws);  // with workspace reuse (OLS.Pool)
+
+WLS result = new WLS(y, X, weights, n, k, false, -1).fit();
+WLS result = new WLS(y, X, weights, n, k, false, -1).fit(ws);  // with workspace reuse (WLS.Pool)
+```
+
+## 18. Decomposer (Matrix Decompositions)
+
+`com.curioloop.yum4j.linalg.Decomposer`
+
+Unified facade for all matrix decompositions. All methods accept an optional `Pool` for workspace reuse and optional `Opts` enums for configuration. Input matrices are overwritten in place (row-major `double[]`).
+
+### Package
+
+```
+com.curioloop.yum4j.linalg          # Decomposer facade, Decomposition interface
+com.curioloop.yum4j.linalg.mat      # LU, QR, LQ, SVD, Cholesky, Schur, Eigen, GEVD, GGEVD, GSVD
+```
+
+### Decomposition Selection
+
+| Problem | Class | Entry point |
+|---|---|---|
+| Solve Ax=b, inverse, determinant | `LU` | `Decomposer.lu(A, n)` |
+| Least squares, rank, solve overdetermined | `QR` | `Decomposer.qr(A, m, n)` |
+| Minimum-norm solution (m≤n) | `LQ` | `Decomposer.lq(A, m, n)` |
+| Singular values, low-rank approx, pseudoinverse | `SVD` | `Decomposer.svd(A, m, n)` |
+| Symmetric positive-definite solve | `Cholesky` | `Decomposer.cholesky(A, n)` |
+| Eigenvalues of general or symmetric matrix | `Eigen` | `Decomposer.eigen(A, n)` |
+| Schur form, Lyapunov equations | `Schur` | `Decomposer.schur(A, n)` |
+| Generalized eigen, A sym + B sym pos-def | `GEVD` | `Decomposer.gevd(A, B, n)` |
+| Generalized eigen, A and B general | `GGEVD` | `Decomposer.ggevd(A, B, n)` |
+| Generalized SVD of two matrices | `GSVD` | `Decomposer.gsvd(A, m, n, B, p)` |
+
+### Common Conventions
+
+- All input matrices are row-major `double[]`, overwritten in place during decomposition.
+- `work()` returns the `Pool` (workspace) for reuse.
+- `ok()` returns true if decomposition succeeded.
+- `toX()` methods return a `Matrix` wrapper (copies data); raw arrays are accessible via `pool` fields.
+- Pool fields: uppercase names (e.g. `U`, `VT`, `Z`) are matrices; lowercase names (e.g. `s`, `wr`, `wi`) are vectors.
+
+
+## 18. LU Decomposition
+
+`com.curioloop.yum4j.linalg.mat.LU`
+
+Performs LU decomposition with partial pivoting: PA = LU.
+
+### Factory Methods
+
+```java
+Decomposer.lu(A, n)           // decompose n×n matrix A
+Decomposer.lu(A, n, ws)       // with workspace reuse
+LU.Pool ws = LU.workspace()   // empty pool, grows on first use
+```
+
+### Result Methods
+
+```java
+lu.ok()                  // true if decomposition succeeded
+lu.toL()                 // n×n lower triangular L (unit diagonal)
+lu.toU()                 // n×n upper triangular U
+lu.toP()                 // n×n permutation matrix P (PA = LU)
+lu.solve(b, x)           // solve Ax = b, returns x
+lu.inverse(Ainv)         // compute A⁻¹ into Ainv
+lu.determinant()         // det(A)
+lu.logDet()              // double[]{log|det|, sign}
+lu.cond()                // condition number (1-norm)
+lu.piv()                 // int[] permutation indices
+lu.pool()                // LU.Pool for reuse
+```
+
+### Example
+
+```java
+double[] A = {4,3, 6,3};  // 2×2 row-major
+LU lu = Decomposer.lu(A, 2);
+double[] x = lu.solve(new double[]{10, 12}, null);  // solve Ax = b
+double det = lu.determinant();
+
+// Workspace reuse
+LU.Pool ws = LU.workspace();
+for (double[] mat : matrices) {
+    LU result = Decomposer.lu(mat, n, ws);
+    result.solve(b, x);
+}
+```
+
+
+## 19. QR Decomposition
+
+`com.curioloop.yum4j.linalg.mat.QR`
+
+Performs QR decomposition of an m×n matrix. Supports column pivoting for rank-revealing QR.
+
+### Options
+
+```java
+QR.Opts.PIVOTING   // enable column pivoting (rank-revealing QR, A·P = Q·R)
+```
+
+### Factory Methods
+
+```java
+Decomposer.qr(A, m, n)                    // standard QR
+Decomposer.qr(A, m, n, QR.Opts.PIVOTING) // rank-revealing QR
+Decomposer.qr(A, m, n, ws)               // with workspace reuse
+QR.Pool ws = QR.workspace()
+```
+
+### Result Methods
+
+```java
+qr.ok()
+qr.toQ()                 // m×n orthogonal matrix Q
+qr.toR()                 // min(m,n)×n upper triangular R
+qr.toP()                 // n×n permutation P (pivoting only; A·P = Q·R)
+qr.solve(b, x)           // solve square system Rx = Qᵀb
+qr.leastSquares(b, x)    // min‖Ax-b‖ (overdetermined)
+qr.solveMultiple(B, nrhs)// multiple right-hand sides
+qr.rank()                // numerical rank (pivoting mode)
+qr.rank(tol)             // rank with custom tolerance
+qr.cond()                // condition number of R
+qr.piv()                 // int[] column permutation (pivoting only)
+qr.isPivoting()
+qr.pool()                // QR.Pool for reuse
+```
+
+### Example
+
+```java
+// Least squares: min‖Ax - b‖
+double[] A = {1,1, 1,2, 1,3};  // 3×2
+double[] b = {6, 5, 7};
+QR qr = Decomposer.qr(A.clone(), 3, 2);
+double[] x = qr.leastSquares(b, null);
+
+// Rank-revealing QR
+QR qrp = Decomposer.qr(A.clone(), 3, 2, QR.Opts.PIVOTING);
+int rank = qrp.rank();
+```
+
+
+## 20. LQ Decomposition
+
+`com.curioloop.yum4j.linalg.mat.LQ`
+
+Performs LQ decomposition of an m×n matrix (requires m ≤ n): A = L·Q.
+Used for minimum-norm solutions to underdetermined systems.
+
+### Factory Methods
+
+```java
+Decomposer.lq(A, m, n)       // decompose m×n matrix (m <= n)
+Decomposer.lq(A, m, n, ws)   // with workspace reuse
+LQ.Pool ws = LQ.workspace()
+```
+
+### Result Methods
+
+```java
+lq.ok()
+lq.toL()                 // m×m lower triangular L
+lq.toQ()                 // n×n orthogonal matrix Q
+lq.solve(b, x)           // solve Ax = b (square system, m=n)
+lq.solveTranspose(b, x)  // solve Aᵀx = b
+lq.leastSquares(b, x)    // minimum-norm solution min‖x‖ s.t. Ax=b
+lq.cond()                // condition number
+lq.pool()                // LQ.Pool for reuse
+```
+
+
+## 21. SVD
+
+`com.curioloop.yum4j.linalg.mat.SVD`
+
+Performs singular value decomposition: A = U·diag(s)·Vᵀ.
+
+### Options
+
+```java
+SVD.Opts.WANT_U   // compute thin U (m × min(m,n))  — default
+SVD.Opts.FULL_U   // compute full U (m × m)
+SVD.Opts.WANT_V   // compute thin Vᵀ (min(m,n) × n) — default
+SVD.Opts.FULL_V   // compute full Vᵀ (n × n)
+```
+
+Default (no opts): thin U and thin Vᵀ.
+
+### Factory Methods
+
+```java
+Decomposer.svd(A, m, n)                              // thin U and Vᵀ
+Decomposer.svd(A, m, n, SVD.Opts.FULL_U, SVD.Opts.FULL_V)
+Decomposer.svd(A, m, n, ws)                          // with workspace reuse
+SVD.Pool ws = SVD.workspace()
+```
+
+### Result Methods
+
+```java
+svd.ok()
+svd.singularValues()     // double[] s (descending order, length min(m,n))
+svd.toU()                // m × uCols matrix U
+svd.toVT()               // vtRows × n matrix Vᵀ
+svd.solve(b, x)          // pseudoinverse solve: x = V·diag(1/s)·Uᵀ·b
+svd.rank()               // numerical rank
+svd.rank(tol)            // rank with custom tolerance
+svd.cond()               // s[0] / s[min-1]
+svd.norm2()              // largest singular value s[0]
+svd.uCols()              // columns of U
+svd.vtRows()             // rows of Vᵀ
+svd.pool()               // SVD.Pool for reuse
+```
+
+### Example
+
+```java
+double[] A = {1,2,3, 4,5,6};  // 2×3
+SVD svd = Decomposer.svd(A, 2, 3);
+double[] s = svd.singularValues();
+int rank = svd.rank();
+double[] x = svd.solve(b, null);  // pseudoinverse
+```
+
+
+## 22. Cholesky / LDLᵀ Decomposition
+
+`com.curioloop.yum4j.linalg.mat.Cholesky`
+
+Performs Cholesky decomposition (A = LLᵀ or A = UᵀU) for symmetric positive-definite matrices,
+or pivoted LDLᵀ decomposition for indefinite symmetric matrices.
+
+### Options
+
+```java
+Cholesky.Opts.LOWER     // use lower triangle (default)
+Cholesky.Opts.UPPER     // use upper triangle
+Cholesky.Opts.PIVOTING  // use pivoted LDLᵀ instead of standard Cholesky
+```
+
+### Factory Methods
+
+```java
+Decomposer.cholesky(A, n)                              // standard Cholesky, lower triangle
+Decomposer.cholesky(A, n, Cholesky.Opts.UPPER)         // upper triangle
+Decomposer.cholesky(A, n, Cholesky.Opts.PIVOTING)      // LDLᵀ
+Decomposer.cholesky(A, n, ws)                          // with workspace reuse
+Cholesky.Pool ws = (Cholesky.Pool) Cholesky.workspace()
+```
+
+### Result Methods
+
+```java
+ch.ok()
+ch.toL()                 // n×n Cholesky factor L (or L from LDLᵀ)
+ch.toD()                 // n×n block-diagonal D (LDLᵀ only)
+ch.solve(b, x)           // solve Ax = b
+ch.inverse(Ainv)         // compute A⁻¹ (Cholesky only)
+ch.determinant()         // det(A)
+ch.logDet()              // log|det(A)|
+ch.cond()                // condition number
+ch.piv()                 // int[] pivot indices (LDLᵀ only)
+ch.isPivoting()
+ch.pool()                // Cholesky.Pool for reuse
+```
+
+### Example
+
+```java
+// Symmetric positive-definite solve
+double[] A = {4,2, 2,3};  // 2×2 SPD
+Cholesky ch = Decomposer.cholesky(A, 2);
+double[] x = ch.solve(new double[]{2, 1}, null);
+double logdet = ch.logDet();
+
+// Indefinite symmetric (LDLᵀ)
+Cholesky ldl = Decomposer.cholesky(A, n, Cholesky.Opts.PIVOTING);
+ldl.solve(b, x);
+```
+
+
+## 23. Schur Decomposition
+
+`com.curioloop.yum4j.linalg.mat.Schur`
+
+Performs real Schur decomposition: A = Z·T·Zᵀ, where T is quasi-upper-triangular (real Schur form)
+and Z is orthogonal. Also provides Lyapunov equation solvers.
+
+### Options
+
+```java
+Schur.Opts.WANT_Z       // compute orthogonal matrix Z (default: not computed)
+Schur.Opts.SORT_LHP     // sort eigenvalues: left half plane (Re(λ) < 0)
+Schur.Opts.SORT_RHP     // sort eigenvalues: right half plane (Re(λ) >= 0)
+Schur.Opts.SORT_IUC     // sort eigenvalues: inside unit circle (|λ| <= 1)
+Schur.Opts.SORT_OUC     // sort eigenvalues: outside unit circle (|λ| > 1)
+```
+
+### Factory Methods
+
+```java
+Decomposer.schur(A, n)                              // no Z, no sorting
+Decomposer.schur(A, n, Schur.Opts.WANT_Z)           // with Z
+Decomposer.schur(A, n, Schur.Opts.WANT_Z, Schur.Opts.SORT_LHP)  // with Z, sort stable first
+Decomposer.schur(A, n, ws)                          // with workspace reuse
+Schur.Pool ws = Schur.workspace()
+```
+
+### Result Methods
+
+```java
+sc.ok()
+sc.toT()                 // n×n quasi-upper-triangular Schur form T
+sc.toZ()                 // n×n orthogonal matrix Z (null if WITHOUT_Z)
+sc.toS()                 // n×1 complex eigenvalue matrix (interleaved re,im)
+sc.eigenvalues()         // double[] real parts of eigenvalues
+sc.eigenvaluesImag()     // double[] imaginary parts
+sc.sdim()                // number of selected eigenvalues (after sorting)
+sc.isStable()            // all Re(λ) < 0
+sc.isDiscreteStable()    // all |λ| <= 1
+sc.invariantSubspace()   // n×sdim matrix of selected invariant subspace
+sc.unstableSubspace()    // n×(n-sdim) matrix of unselected subspace
+sc.reorder(sort)         // reorder eigenvalues in place
+sc.lyapunov(Q)                   // solve AX + XAᵀ = Q (overwrites Q with X)
+sc.lyapunov(Q, sign)             // solve AX + XAᵀ = sign*Q
+sc.discreteLyapunov(A, Q)        // solve AXAᵀ - X = Q (overwrites Q with X)
+sc.cond()
+sc.pool()                // Schur.Pool for reuse
+```
+
+### Example
+
+```java
+// Stability analysis
+Schur sc = Decomposer.schur(A.clone(), n, Schur.Opts.WANT_Z, Schur.Opts.SORT_LHP);
+boolean stable = sc.isStable();
+double[] stableSubspace = sc.invariantSubspace();  // columns span stable subspace
+
+// Continuous Lyapunov: AX + XAᵀ = Q (requires WANT_Z)
+Schur sc2 = Decomposer.schur(A.clone(), n, Schur.Opts.WANT_Z);
+sc2.lyapunov(Q);  // Q overwritten with solution X
+
+// Discrete Lyapunov: AXAᵀ - X = Q (requires WANT_Z)
+sc2.discreteLyapunov(A.clone(), Q);
+```
+
+
+## 24. Eigen Decomposition
+
+`com.curioloop.yum4j.linalg.mat.Eigen`
+
+Performs eigenvalue decomposition of a real matrix. Supports both symmetric (dsyev) and
+general non-symmetric (dgeev) paths in a single class.
+
+### Options
+
+```java
+Eigen.Opts.SYMMETRIC_LOWER  // symmetric matrix, use lower triangle (dsyev)
+Eigen.Opts.SYMMETRIC_UPPER  // symmetric matrix, use upper triangle (dsyev)
+Eigen.Opts.WANT_LEFT         // compute left eigenvectors (general only)
+Eigen.Opts.WANT_RIGHT        // compute right eigenvectors (general only)
+```
+
+Default (no opts): general non-symmetric, eigenvalues only (no eigenvectors).
+For symmetric input, eigenvectors are computed only when `WANT_RIGHT` is passed.
+
+### Factory Methods
+
+```java
+Decomposer.eigen(A, n)                                    // general, eigenvalues only
+Decomposer.eigen(A, n, Eigen.Opts.WANT_RIGHT)             // general, right eigenvectors
+Decomposer.eigen(A, n, Eigen.Opts.SYMMETRIC_LOWER)        // symmetric, eigenvalues only
+Decomposer.eigen(A, n, Eigen.Opts.SYMMETRIC_LOWER, Eigen.Opts.WANT_RIGHT)  // symmetric + vectors
+Decomposer.eigen(A, n, Eigen.Opts.WANT_LEFT, Eigen.Opts.WANT_RIGHT)  // both vectors
+Decomposer.eigen(A, n, ws)                                // with workspace reuse
+Eigen.Pool ws = Eigen.workspace()
+```
+
+### Result Methods
+
+```java
+eg.ok()
+eg.eigenvalues()         // double[] real parts (ascending for symmetric)
+eg.eigenvaluesImag()     // double[] imaginary parts (null for symmetric)
+eg.toV()                 // n×n right eigenvector matrix
+eg.toS()                 // n×1 eigenvalue matrix (real for symmetric, complex for general)
+eg.eigenvector(j)        // double[2n] interleaved (re,im) for j-th eigenvector
+eg.eigenvectors()        // double[n*n] raw right eigenvector array
+eg.leftEigenvectors()    // double[n*n] raw left eigenvector array (if WANT_LEFT)
+eg.isSymmetric()
+eg.cond()
+eg.pool()                // Eigen.Pool for reuse
+```
+
+### Pool Fields
+
+```java
+pool.wr    // double[] real parts of eigenvalues (length n)
+pool.wi    // double[] imaginary parts (null for symmetric)
+pool.vr    // double[n*n] right eigenvectors (null if not requested)
+pool.vl    // double[n*n] left eigenvectors (null if not requested)
+```
+
+### Example
+
+```java
+// Symmetric eigenvalue decomposition
+double[] A = {2,1, 1,2};  // 2×2 symmetric
+Eigen es = Decomposer.eigen(A, 2, Eigen.Opts.SYMMETRIC_LOWER);
+double[] eigenvalues = es.eigenvalues();  // [1.0, 3.0]
+Matrix V = es.toV();                      // eigenvector columns
+
+// General eigenvalue decomposition
+Eigen eg = Decomposer.eigen(A, n);
+double[] wr = eg.eigenvalues();
+double[] wi = eg.eigenvaluesImag();
+Matrix toS = eg.toS();  // n×1 complex matrix
+```
+
+
+## 25. GEVD — Generalized Symmetric-Definite Eigenvalue Decomposition
+
+`com.curioloop.yum4j.linalg.mat.GEVD`
+
+Solves generalized eigenproblems where A is symmetric and B is symmetric positive-definite.
+Algorithm: Cholesky(B) → dsygst → dsyev → back-transform.
+
+### Problem Types
+
+| Type | Problem |
+|---|---|
+| 1 (default) | A·x = λ·B·x |
+| 2 | A·B·x = λ·x |
+| 3 | B·A·x = λ·x |
+
+### Options
+
+```java
+GEVD.Opts.LOWER   // use lower triangle (default)
+GEVD.Opts.UPPER   // use upper triangle
+GEVD.Opts.TYPE1   // A·x = λ·B·x (default)
+GEVD.Opts.TYPE2   // A·B·x = λ·x
+GEVD.Opts.TYPE3   // B·A·x = λ·x
+GEVD.Opts.WANT_V  // compute eigenvectors (default: eigenvalues only)
+```
+
+### Factory Methods
+
+```java
+Decomposer.gevd(A, B, n)                                   // type 1, lower triangle, eigenvalues only
+Decomposer.gevd(A, B, n, GEVD.Opts.WANT_V)                 // with eigenvectors
+Decomposer.gevd(A, B, n, GEVD.Opts.UPPER, GEVD.Opts.TYPE2)
+Decomposer.gevd(A, B, n, ws)                               // with workspace reuse
+GEVD.Pool ws = (GEVD.Pool) GEVD.workspace()
+```
+
+### Result Methods
+
+```java
+gv.ok()
+gv.eigenvalues()         // double[] (real, ascending order)
+gv.toS()                 // n×1 real eigenvalue matrix
+gv.toV()                 // n×n eigenvector matrix (column j = j-th eigenvector)
+gv.cond()                // condition number based on eigenvalues
+gv.type()                // problem type (1, 2, or 3)
+gv.pool()                // GEVD.Pool for reuse
+```
+
+### Notes
+
+- A is overwritten with eigenvectors; B is overwritten with the Cholesky factor.
+- Returns `ok() == false` if B is not positive-definite.
+- Eigenvalues are always real (symmetric problem).
+
+### Example
+
+```java
+// Solve A·x = λ·B·x
+double[] A = {2,1, 1,3};  // symmetric
+double[] B = {1,0, 0,2};  // symmetric positive-definite
+GEVD gv = Decomposer.gevd(A, B, 2);
+double[] lambda = gv.eigenvalues();
+Matrix V = gv.toV();  // eigenvectors as columns
+```
+
+
+## 26. GGEVD — Generalized Non-Symmetric Eigenvalue Decomposition
+
+`com.curioloop.yum4j.linalg.mat.GGEVD`
+
+Solves A·x = λ·B·x where A and B are general (non-symmetric) real matrices.
+Eigenvalues are represented as (alphar[i] + i·alphai[i]) / beta[i] to handle infinite eigenvalues.
+Algorithm: dgebal → dgehrd → QR(B) → dgghrd → dhgeqz → dtgevc → dgebak.
+
+### Options
+
+```java
+GGEVD.Opts.WANT_VL   // compute left eigenvectors
+GGEVD.Opts.WANT_VR   // compute right eigenvectors
+```
+
+Default (no opts): eigenvalues only (no eigenvectors).
+
+### Factory Methods
+
+```java
+Decomposer.ggevd(A, B, n)                                  // eigenvalues only
+Decomposer.ggevd(A, B, n, GGEVD.Opts.WANT_VR)             // right eigenvectors only
+Decomposer.ggevd(A, B, n, GGEVD.Opts.WANT_VL, GGEVD.Opts.WANT_VR)  // both
+Decomposer.ggevd(A, B, n, ws)                              // with workspace reuse
+GGEVD.Pool ws = GGEVD.workspace()
+```
+
+### Result Methods
+
+```java
+gg.ok()
+gg.alphar()              // double[] real parts of alpha (numerators)
+gg.alphai()              // double[] imaginary parts of alpha
+gg.beta()                // double[] beta (denominators); beta[i]=0 → infinite eigenvalue
+gg.eigenvalues()         // double[2n] interleaved (re,im) pairs; Inf for infinite eigenvalues
+gg.toS()                 // n×1 complex eigenvalue matrix
+gg.toVR()                // n×n right eigenvector matrix (null if not requested)
+gg.toVL()                // n×n left eigenvector matrix (null if not requested)
+gg.pool()                // GGEVD.Pool for reuse
+```
+
+### Pool Fields
+
+```java
+pool.alphar   // double[] real parts of alpha (length n)
+pool.alphai   // double[] imaginary parts of alpha (length n)
+pool.beta     // double[] denominators (length n)
+pool.VL       // double[n*n] left eigenvectors (null if not requested)
+pool.VR       // double[n*n] right eigenvectors (null if not requested)
+```
+
+### Eigenvector Storage Convention
+
+For a real eigenvalue at index j: column j of VR/VL holds the eigenvector.
+For a complex conjugate pair at indices j, j+1:
+- column j = real part of eigenvector
+- column j+1 = imaginary part of eigenvector
+
+### Example
+
+```java
+double[] A = {1,2, 3,4};
+double[] B = {2,1, 1,3};
+GGEVD gg = Decomposer.ggevd(A, B, 2);
+double[] ev = gg.eigenvalues();  // [re0, im0, re1, im1]
+Matrix VR = gg.toVR();
+
+// Access raw alpha/beta
+double[] ar = gg.alphar(), ai = gg.alphai(), b = gg.beta();
+for (int i = 0; i < n; i++) {
+    double re = b[i] != 0 ? ar[i]/b[i] : Double.POSITIVE_INFINITY;
+    double im = b[i] != 0 ? ai[i]/b[i] : 0;
+}
+```
+
+
+## 27. GSVD — Generalized Singular Value Decomposition
+
+`com.curioloop.yum4j.linalg.mat.GSVD`
+
+Computes the GSVD of A (m×n) and B (p×n):
+- A = U · diag(alpha) · R
+- B = V · diag(beta)  · R
+
+where U (m×m) and V (p×p) are orthogonal, R is upper triangular, and
+generalized singular values are sigma[i] = alpha[i] / beta[i].
+
+### Options
+
+```java
+GSVD.Opts.WANT_U   // compute U
+GSVD.Opts.WANT_V   // compute V
+GSVD.Opts.WANT_Q   // compute orthogonal matrix Q
+```
+
+Default (no opts): compute U, V, and Q.
+
+### Factory Methods
+
+```java
+Decomposer.gsvd(A, m, n, B, p)                             // all matrices
+Decomposer.gsvd(A, m, n, B, p, GSVD.Opts.WANT_U)          // U only
+Decomposer.gsvd(A, m, n, B, p, ws)                         // with workspace reuse
+GSVD.Pool ws = GSVD.workspace()
+```
+
+### Result Methods
+
+```java
+gs.ok()
+gs.sigma()               // double[] generalized singular values (length k+l)
+gs.alpha()               // double[] alpha values (length n)
+gs.beta()                // double[] beta values (length n)
+gs.toS()                 // (k+l)×1 matrix of generalized singular values
+gs.toU()                 // m×m orthogonal matrix U
+gs.toV()                 // p×p orthogonal matrix V
+gs.toQ()                 // n×n orthogonal matrix Q
+gs.k()                   // rank parameter k
+gs.l()                   // rank parameter l
+gs.rank()                // k + l
+gs.cond()                // condition number
+gs.pool()                // GSVD.Pool for reuse
+```
+
+### Example
+
+```java
+double[] A = {1,2,3, 4,5,6};  // 2×3
+double[] B = {7,8,9};          // 1×3
+GSVD gs = Decomposer.gsvd(A, 2, 3, B, 1);
+double[] sigma = gs.sigma();
+Matrix U = gs.toU();
+Matrix V = gs.toV();
+```
+
+
+## 28. Integrator — Numerical Integration Facade
+
+`com.curioloop.yum4j.quad.Integrator`
+
+Unified entry point for one-dimensional numerical integration. All factory methods return a builder implementing `Integral<R, W>` with two lifecycle methods:
+- `integrate()` — compute using an internally managed workspace
+- `integrate(W workspace)` — compute using a caller-provided workspace (avoids allocation)
+
+### Factory Methods
+
+```java
+Integrator.fixed()                        // → FixedIntegral
+Integrator.weighted()                     // → WeightedIntegral
+Integrator.adaptive()                     // → AdaptiveIntegral (GK15 or Gauss-Lobatto)
+Integrator.doubleExponential(DEOpts)      // → DoubleExponentialIntegral
+Integrator.oscillatory(OscillatoryOpts)   // → OscillatoryIntegral
+Integrator.principalValue()               // → PrincipalValueIntegral
+Integrator.endpointSingular(EndpointOpts) // → EndpointSingularIntegral
+Integrator.improper(ImproperOpts)         // → ImproperIntegral.Adaptive
+Integrator.improperFixed(ImproperOpts)    // → ImproperIntegral.Fixed
+Integrator.sampled(SampledRule)           // → SampledIntegral
+Integrator.cumulative(SampledRule)        // → CumulativeIntegral
+Integrator.filon(FilonOpts)               // → FilonIntegral
+Integrator.ode(IVPMethod)                // → IVPIntegral (ODE IVP solver)
+```
+
+### DoubleExponentialIntegral — Boost-style DE rules
+
+`com.curioloop.yum4j.quad.de.DoubleExponentialIntegral`
+
+Builder for the three Boost-style double-exponential quadrature families exposed through
+`Integrator.doubleExponential(DEOpts)`.
+
+### DEOpts
+
+```java
+DEOpts.TANH_SINH   // finite intervals and mapped infinite domains
+DEOpts.EXP_SINH    // half-infinite intervals
+DEOpts.SINH_SINH   // whole real line, rapidly decaying integrands
+```
+
+### Builder Methods
+
+```java
+Integrator.doubleExponential(DEOpts opts)
+    .function(DoubleUnaryOperator f)           // required for all rules
+    .function(DoubleBinaryOperator f)          // TANH_SINH only; callback gets (x, complement)
+    .bounds(double lower, double upper)        // required for TANH_SINH / EXP_SINH
+    .opts(DEOpts opts)                         // optional rule override after construction
+    .tolerance(double tol)                     // optional, default DoubleExponentialCore.DEFAULT_TOLERANCE
+    .maxRefinements(int n)                     // optional, defaults depend on rule family
+    .minComplement(double value)               // TANH_SINH only; minimum retained endpoint distance
+    .integrate()                               // → Quadrature
+    .integrate(DEPool workspace)               // workspace reuse
+```
+
+### Notes
+
+- `TANH_SINH` supports both unary callbacks and complement-aware callbacks `g(x, c)` where
+  `c = min(x-a, b-x)` for finite intervals.
+- `EXP_SINH` expects a half-line domain: `[a, +∞)` or `(-∞, b]`.
+- `SINH_SINH` targets rapidly decaying whole-line integrands and normally omits explicit bounds.
+- `DEPool` caches rule-specific refined DE rows so repeated solves can reuse the same workspace.
+
+### Example
+
+```java
+Quadrature r = Integrator.doubleExponential(DEOpts.TANH_SINH)
+    .function(Math::sin)
+    .bounds(0.0, Math.PI)
+    .tolerance(1e-10)
+    .integrate();
+
+Quadrature tail = Integrator.doubleExponential(DEOpts.EXP_SINH)
+    .function(x -> Math.exp(-x))
+    .bounds(0.0, Double.POSITIVE_INFINITY)
+    .tolerance(1e-10)
+    .integrate();
+
+DoubleExponentialIntegral de = Integrator.doubleExponential(DEOpts.TANH_SINH)
+    .function(Math::sin)
+    .bounds(0.0, Math.PI)
+    .tolerance(1e-10);
+DEPool ws = new DEPool();
+Quadrature r1 = de.integrate(ws);
+Quadrature r2 = de.bounds(0.0, 2.0).integrate(ws);
+```
+
+---
+
+## 29. FixedIntegral — Gauss-Legendre on [a, b]
+
+`com.curioloop.yum4j.quad.gauss.FixedIntegral`
+
+Applies the affine map x = c + h·t (c = (a+b)/2, h = (b-a)/2) and evaluates the n-point Legendre rule. Exact for polynomials of degree ≤ 2n-1. No error estimate.
+
+### Builder Methods
+
+```java
+Integrator.fixed()
+    .function(DoubleUnaryOperator f)     // required
+    .bounds(double min, double max)      // required, finite, min < max
+    .points(int n)                       // required, n > 0
+    .rule(GaussRule)                     // optional, only GaussRule.legendre() accepted
+    .integrate()                         // → Double
+    .integrate(GaussPool workspace)      // with workspace reuse
+```
+
+### Example
+
+```java
+double v = Integrator.fixed()
+    .function(x -> Math.exp(-x * x)).bounds(0.0, 1.0).points(8).integrate();
+```
+
+---
+
+## 30. WeightedIntegral — Rule's Natural Domain
+
+`com.curioloop.yum4j.quad.gauss.WeightedIntegral`
+
+Evaluates ∫ w(x)·f(x) dx on the rule's canonical domain without affine mapping. The weights already absorb the weight function w.
+
+### Builder Methods
+
+```java
+Integrator.weighted()
+    .function(DoubleUnaryOperator f)     // required
+    .points(int n)                       // required
+    .rule(GaussRule rule)                // required
+    .integrate()                         // → Double
+    .integrate(GaussPool workspace)
+```
+
+### GaussRule Factory Methods
+
+```java
+// Standard rules
+GaussRule.legendre()          // ∫₋₁^1 f(x) dx,  μ₀ = 2
+GaussRule.hermite()           // ∫₋∞^∞ e^{-x²} f(x) dx,  μ₀ = √π
+GaussRule.laguerre()          // ∫₀^∞ e^{-x} f(x) dx,  μ₀ = 1
+
+// Parameterized rules
+GaussRule.jacobi(alpha, beta) // ∫₋₁^1 (1-x)^α (1+x)^β f(x) dx,  α,β > -1
+GaussRule.laguerre(s)         // ∫₀^∞ x^s·e^{-x} f(x) dx,  s > -1
+GaussRule.hermite(s)          // ∫₋∞^∞ |x|^{2s}·e^{-x²} f(x) dx,  s > -1/2
+```
+
+### Example
+
+```java
+// ∫₋∞^∞ e^{-x²} dx = √π
+double v = Integrator.weighted()
+    .function(x -> 1.0).points(1).rule(GaussRule.hermite()).integrate();
+// v ≈ 1.7724538509...
+
+// ∫₋₁^1 (1-x)^{-0.5}(1+x)^{-0.5} dx = π  (Chebyshev weight)
+double v2 = Integrator.weighted()
+    .function(x -> 1.0).points(1).rule(GaussRule.jacobi(-0.5, -0.5)).integrate();
+// v2 ≈ π
+```
+
+---
+
+## 31. AdaptiveIntegral — Adaptive Quadrature on [a, b]
+
+`com.curioloop.yum4j.quad.adapt.AdaptiveIntegral`
+
+Adaptive quadrature with pluggable underlying rule. Bisects the sub-interval with the largest local error at each step. Supports breakpoints for integrands with known discontinuities.
+
+### AdaptiveRule
+
+```java
+AdaptiveRule.GK15           // 15-point Gauss-Kronrod (default), exact degree 29, 15 evals/interval
+AdaptiveRule.GAUSS_LOBATTO  // 4-point Gauss-Lobatto, exact degree 5, endpoint reuse (~3 new evals/subdivision)
+```
+
+Use `GAUSS_LOBATTO` when function evaluations are expensive (e.g. Heston characteristic function):
+endpoint values are shared between adjacent sub-intervals, reducing new evaluations per bisection.
+
+### Builder Methods
+
+```java
+Integrator.adaptive()
+    .function(DoubleUnaryOperator f)
+    .bounds(double min, double max)
+    .tolerances(double absTol, double relTol)  // at least one > 0; default 1e-10
+    .breakpoints(double... pts)                // optional, strictly inside (min, max)
+    .maxSubdivisions(int)                      // default 256
+    .maxEvaluations(int)                       // default 16384
+    .rule(AdaptiveRule)                        // optional, default GK15
+    .integrate()                               // → Quadrature
+    .integrate(AdaptivePool workspace)
+```
+
+### Example
+
+```java
+Quadrature r = Integrator.adaptive()
+    .function(Math::sin).bounds(0.0, Math.PI).tolerances(1e-12, 1e-12).integrate();
+// r.value() ≈ 2.0,  r.status().converged() == true
+
+// Gauss-Lobatto for expensive integrand
+Quadrature r2 = Integrator.adaptive()
+    .function(expensiveFn).bounds(0.0, 10.0).tolerances(1e-8, 1e-8)
+    .rule(AdaptiveRule.GAUSS_LOBATTO).integrate();
+```
+
+---
+
+## 32. OscillatoryIntegral — ∫ f(x)·w(ω·x) dx
+
+`com.curioloop.yum4j.quad.special.OscillatoryIntegral`
+
+Integrates oscillatory integrands. Finite-interval variants use adaptive GK15 on the weighted integrand. Semi-infinite variants use the Longman/QUADPACK cycle-by-cycle strategy with Wynn ε-algorithm acceleration.
+
+When ω = 0 and kernel is sine, result is exactly zero. When ω = 0 and kernel is cosine, reduces to plain adaptive integration.
+
+### OscillatoryOpts
+
+```java
+OscillatoryOpts.COS        // ∫_{min}^{max} f(x)·cos(ω·x) dx
+OscillatoryOpts.SIN        // ∫_{min}^{max} f(x)·sin(ω·x) dx
+OscillatoryOpts.COS_UPPER  // ∫_{min}^{+∞} f(x)·cos(ω·x) dx
+OscillatoryOpts.SIN_UPPER  // ∫_{min}^{+∞} f(x)·sin(ω·x) dx
+```
+
+### Builder Methods
+
+```java
+Integrator.oscillatory(OscillatoryOpts opts)
+    .function(DoubleUnaryOperator f)
+    .lowerBound(double min)            // required for all opts
+    .upperBound(double max)            // required for COS/SIN (finite interval)
+    .omega(double omega)               // required, finite; 0 allowed
+    .tolerances(double absTol, double relTol)
+    .maxCycles(int)                    // semi-infinite only, default 64
+    .maxSubdivisions(int)              // default 256
+    .maxEvaluations(int)               // default 16384
+    .integrate()                       // → Quadrature
+    .integrate(AdaptivePool workspace)
+```
+
+### Example
+
+```java
+// ∫₀^∞ e^{-2.5x}·cos(2.3x) dx = 2.5 / (2.5² + 2.3²)
+Quadrature r = Integrator.oscillatory(OscillatoryOpts.COS_UPPER)
+    .function(x -> Math.exp(-2.5 * x)).lowerBound(0.0).omega(2.3)
+    .tolerances(1e-10, 1e-10).integrate();
+
+// ∫₀^1 e^{20(x-1)}·sin(ω·x) dx  (finite interval)
+Quadrature r2 = Integrator.oscillatory(OscillatoryOpts.SIN)
+    .function(x -> Math.exp(20.0 * (x - 1.0))).lowerBound(0.0).upperBound(1.0)
+    .omega(Math.pow(2.0, 3.4)).tolerances(1e-11, 1e-11).integrate();
+```
+
+---
+
+## 33. PrincipalValueIntegral — Cauchy P.V. ∫ f(x)/(x-c) dx
+
+`com.curioloop.yum4j.quad.special.PrincipalValueIntegral`
+
+Computes the Cauchy principal value integral. When the pole c ∈ (a,b), regularizes via the Sokhotski–Plemelj identity:
+  P.V. ∫ f(x)/(x-c) dx = ∫ [f(x)-f(c)]/(x-c) dx + f(c)·ln|(b-c)/(c-a)|
+
+When c ∉ [a,b], integrates f(x)/(x-c) directly.
+
+### Builder Methods
+
+```java
+Integrator.principalValue()
+    .function(DoubleUnaryOperator f)
+    .bounds(double min, double max)
+    .pole(double c)                    // finite, must not equal min or max
+    .tolerances(double absTol, double relTol)
+    .maxSubdivisions(int)              // default 256
+    .maxEvaluations(int)               // default 16384
+    .integrate()                       // → Quadrature
+    .integrate(AdaptivePool workspace)
+```
+
+### Example
+
+```java
+// P.V. ∫₀^1 1/(x-0.5) dx = 0  (symmetric constant integrand)
+Quadrature r = Integrator.principalValue()
+    .function(x -> 1.0).bounds(0.0, 1.0).pole(0.5)
+    .tolerances(1e-12, 1e-12).integrate();
+// r.value() ≈ 0.0
+```
+
+---
+
+## 34. EndpointSingularIntegral — ∫ (x-a)^α (b-x)^β · log-factor · f(x) dx
+
+`com.curioloop.yum4j.quad.special.EndpointSingularIntegral`
+
+Handles algebraic and logarithmic endpoint singularities. ALGEBRAIC uses Gauss-Jacobi rule refinement (point count doubles at each level). LOG variants use tanh-sinh (double-exponential) quadrature.
+
+### EndpointOpts
+
+```java
+EndpointOpts.ALGEBRAIC  // no log factor; Gauss-Jacobi refinement
+EndpointOpts.LOG_LEFT   // multiply by ln(x-a); tanh-sinh
+EndpointOpts.LOG_RIGHT  // multiply by ln(b-x); tanh-sinh
+EndpointOpts.LOG_BOTH   // multiply by ln(x-a)·ln(b-x); tanh-sinh
+```
+
+### Builder Methods
+
+```java
+Integrator.endpointSingular(EndpointOpts opts)
+    .function(DoubleUnaryOperator f)
+    .bounds(double min, double max)
+    .exponents(double alpha, double beta)        // both > -1
+    .opts(EndpointOpts)                          // change opts after construction
+    .tolerances(double absTol, double relTol)
+    .maxRefinements(int)                         // default 12
+    .integrate()                                 // → Quadrature
+    .integrate(GaussPool workspace)
+```
+
+### Example
+
+```java
+// ∫₋₁^1 (1-x)^{-0.5}(1+x)^{-0.5} f(x) dx  (Chebyshev weight)
+Quadrature r = Integrator.endpointSingular(EndpointOpts.ALGEBRAIC)
+    .function(x -> 1.0).bounds(-1.0, 1.0).exponents(-0.5, -0.5)
+    .tolerances(1e-10, 1e-10).integrate();
+// r.value() ≈ π
+
+// ∫₀^1 ln(x) dx = -1  (log singularity at left endpoint)
+Quadrature r2 = Integrator.endpointSingular(EndpointOpts.LOG_LEFT)
+    .function(x -> 1.0).bounds(0.0, 1.0).exponents(0.0, 0.0)
+    .tolerances(1e-10, 1e-10).integrate();
+// r2.value() ≈ -1.0
+```
+
+---
+
+## 35. ImproperIntegral — Semi-infinite or Infinite Domain
+
+`com.curioloop.yum4j.quad.special.ImproperIntegral`
+
+Abstract base with two concrete subclasses. Both apply variable substitutions to map the infinite domain to a finite interval:
+- UPPER:      x = a + t/(1-t),  t ∈ [0,1)
+- LOWER:      x = b - t/(1-t),  t ∈ [0,1)
+- WHOLE_LINE: x = t/(1-t²),     t ∈ (-1,1)
+
+### ImproperOpts
+
+```java
+ImproperOpts.UPPER      // ∫_{min}^{+∞} f(x) dx  — requires lowerBound()
+ImproperOpts.LOWER      // ∫_{-∞}^{max} f(x) dx  — requires upperBound()
+ImproperOpts.WHOLE_LINE // ∫_{-∞}^{+∞} f(x) dx   — no bounds needed
+```
+
+### ImproperIntegral.Adaptive (with error estimate)
+
+```java
+Integrator.improper(ImproperOpts opts)
+    .function(DoubleUnaryOperator f)
+    .lowerBound(double min)            // UPPER only
+    .upperBound(double max)            // LOWER only
+    .tolerances(double absTol, double relTol)
+    .maxSubdivisions(int)              // default 256
+    .maxEvaluations(int)               // default 16384
+    .integrate()                       // → Quadrature
+    .integrate(AdaptivePool workspace)
+```
+
+### ImproperIntegral.Fixed (fast, no error estimate)
+
+```java
+Integrator.improperFixed(ImproperOpts opts)
+    .function(DoubleUnaryOperator f)
+    .lowerBound(double min)            // UPPER only
+    .upperBound(double max)            // LOWER only
+    .points(int n)                     // required
+    .integrate()                       // → Quadrature (estimatedError = 0)
+    .integrate(GaussPool workspace)
+```
+
+### Example
+
+```java
+// ∫₀^∞ e^{-x} dx = 1  (adaptive)
+Quadrature r = Integrator.improper(ImproperOpts.UPPER)
+    .function(x -> Math.exp(-x)).lowerBound(0.0).tolerances(1e-10, 1e-10).integrate();
+// r.value() ≈ 1.0
+
+// ∫₋∞^∞ 1/(1+x²) dx = π  (fixed-point)
+Quadrature r2 = Integrator.improperFixed(ImproperOpts.WHOLE_LINE)
+    .function(x -> 1.0 / (1.0 + x * x)).points(48).integrate();
+// r2.value() ≈ π
+```
+
+---
+
+## 36. SampledIntegral / CumulativeIntegral — Sampled Data
+
+`com.curioloop.yum4j.quad.sampled.SampledIntegral`
+`com.curioloop.yum4j.quad.sampled.CumulativeIntegral`
+
+Integration of discrete sampled data. No workspace needed (`Integral<R, Void>`).
+
+### SampledRule
+
+```java
+SampledRule.TRAPEZOIDAL  // composite trapezoidal, O(h²)
+SampledRule.SIMPSON      // composite Simpson's, O(h⁴); corrected end-panel for even counts
+SampledRule.ROMBERG      // Richardson-extrapolated trapezoidal; requires 2^k+1 samples (equally spaced only)
+```
+
+### SampledIntegral (scalar total)
+
+```java
+// From pre-sampled data
+Integrator.sampled(SampledRule rule)
+    .samples(double[] y)               // equally spaced, dx=1
+    .samples(double[] y, double dx)    // equally spaced with given spacing
+    .samples(double[] x, double[] y)   // explicit coordinates (strictly increasing)
+    .integrate()                       // → Double
+
+// From function — zero allocation for TRAPEZOIDAL and SIMPSON
+Integrator.sampled(SampledRule rule)
+    .function(DoubleUnaryOperator f, int n, double a, double b)
+    .integrate()                       // → Double
+```
+
+### CumulativeIntegral (running total array)
+
+```java
+Integrator.cumulative(SampledRule rule)  // TRAPEZOIDAL or SIMPSON only (not ROMBERG)
+    .samples(double[] y)
+    .samples(double[] y, double dx)
+    .samples(double[] x, double[] y)
+    .integrate()                         // → double[], result[0] == 0 always
+```
+
+### Example
+
+```java
+double[] y = {0.0, 1.0, 4.0, 9.0, 16.0};  // f(x) = x² at x = 0,1,2,3,4
+double total = Integrator.sampled(SampledRule.SIMPSON).samples(y, 1.0).integrate();
+// total ≈ 21.33  (exact: ∫₀^4 x² dx = 64/3)
+
+// Function-based (zero allocation)
+double total2 = Integrator.sampled(SampledRule.SIMPSON).function(Math::sin, 101, 0.0, Math.PI).integrate();
+// total2 ≈ 2.0
+
+double[] cumul = Integrator.cumulative(SampledRule.TRAPEZOIDAL).samples(y, 1.0).integrate();
+// cumul = [0.0, 0.5, 3.0, 8.5, 18.0]
+```
+
+---
+
+## 37. FilonIntegral — Highly Oscillatory Finite Interval
+
+`com.curioloop.yum4j.quad.sampled.FilonIntegral`
+
+Filon's method for integrals of the form ∫_{a}^{b} f(x)·cos(t·x) dx or ∫_{a}^{b} f(x)·sin(t·x) dx.
+Approximates f(x) by a piecewise quadratic and integrates the product with the trigonometric factor
+analytically (Abramowitz & Stegun §25.4.62–63). Far more efficient than adaptive GK15 when t is large.
+
+### FilonOpts
+
+```java
+FilonOpts.COS  // ∫_{a}^{b} f(x)·cos(t·x) dx
+FilonOpts.SIN    // ∫_{a}^{b} f(x)·sin(t·x) dx
+```
+
+### Builder Methods
+
+```java
+Integrator.filon(FilonOpts opts)
+    .function(DoubleUnaryOperator f)     // required
+    .bounds(double a, double b)          // required, finite, a < b
+    .frequency(double t)                 // required, t > 0
+    .intervals(int n)                    // required, even, >= 2; evaluates f at n+1 points
+    .integrate()                         // → Double
+```
+
+### Example
+
+```java
+// ∫₀^{2π} e^{-0.5x}·cos(10x) dx
+double result = Integrator.filon(FilonOpts.COS)
+    .function(x -> Math.exp(-0.5 * x))
+    .bounds(0.0, 2 * Math.PI).frequency(10.0).intervals(100)
+    .integrate();
+```
+
+---
+
+## 37. Quadrature — Result Type
+
+`com.curioloop.yum4j.quad.Quadrature`
+
+Immutable result of a quadrature computation.
+
+### Methods
+
+```java
+r.value()           // integral estimate
+r.estimatedError()  // absolute error bound (0 for fixed-point methods)
+r.status()          // Quadrature.Status enum
+r.status().converged()       // true if Status.CONVERGED
+r.iterations()      // adaptive subdivisions or refinement levels performed
+r.evaluations()     // total function evaluations
+r.summary()         // single-line formatted summary
+r.toString()           // multi-line diagnostic output
+```
+
+### Quadrature.Status
+
+| Status | Converged | Description |
+|---|---|---|
+| `CONVERGED` | true | Requested tolerance satisfied |
+| `MAX_SUBDIVISIONS_REACHED` | false | Adaptive subdivision limit hit |
+| `MAX_EVALUATIONS_REACHED` | false | Function evaluation limit hit |
+| `MAX_CYCLES_REACHED` | false | Oscillation cycle limit hit |
+| `MAX_REFINEMENTS_REACHED` | false | Endpoint refinement level limit hit |
+| `ROUND_OFF_DETECTED` | false | Floating-point roundoff prevented further subdivision |
+| `ABNORMAL_TERMINATION` | false | NaN/Inf in integrand or internal failure |
+| `INVALID_ARGUMENT` | false | Invalid parameter (non-finite bounds, etc.) |
+
+`status.limitReached()` — true for the four limit-reached statuses (best estimate still returned)
+`status.error()` — true for ABNORMAL_TERMINATION and INVALID_ARGUMENT
+
+---
+
+## 38. Workspace Reuse for Quadrature
+
+Both pool types use a "grow-only" arena strategy: the backing array is never shrunk, only grown when needed.
+
+### AdaptivePool
+
+Used by: `AdaptiveIntegral`, `OscillatoryIntegral`, `PrincipalValueIntegral`, `ImproperIntegral.Adaptive`
+
+```java
+AdaptivePool ws = new AdaptivePool();
+
+// Reuse across calls with same or smaller maxSubdivisions
+Quadrature r1 = Integrator.adaptive().function(f1).bounds(0,1).tolerances(1e-10,1e-10).integrate(ws);
+Quadrature r2 = Integrator.adaptive().function(f2).bounds(0,2).tolerances(1e-10,1e-10).integrate(ws);
+```
+
+### GaussPool
+
+Used by: `FixedIntegral`, `WeightedIntegral`, `EndpointSingularIntegral`, `ImproperIntegral.Fixed`
+
+```java
+GaussPool ws = new GaussPool();
+
+double v1 = Integrator.fixed().function(f1).bounds(0,1).points(8).integrate(ws);
+double v2 = Integrator.fixed().function(f2).bounds(0,1).points(8).integrate(ws);  // arena reused
+double v3 = Integrator.fixed().function(f3).bounds(0,1).points(16).integrate(ws); // arena grown
+```
+
+### High-frequency reuse pattern
+
+```java
+AdaptiveIntegral problem = Integrator.adaptive()
+    .function(Math::sin).bounds(0.0, Math.PI).tolerances(1e-10, 1e-10);
+AdaptivePool ws = new AdaptivePool();
+
+for (double[] interval : intervals) {
+    Quadrature r = problem.bounds(interval[0], interval[1]).integrate(ws);
+    // process r
+}
+```
+
+---
+
+## 39. IVPIntegral — ODE Initial Value Problem Solver
+
+`com.curioloop.yum4j.quad.ode.IVPIntegral`
+
+Fluent facade for solving dy/dt = f(t, y), y(t₀) = y₀ over [t₀, tf] using adaptive step-size methods. Corresponds to scipy `solve_ivp`. Entry point: `Integrator.ode(IVPMethod)`.
+
+### Constructor
+
+```java
+new IVPIntegral(IVPMethod method)   // method is required and immutable
+```
+
+### Builder Methods
+
+```java
+.equation(ODE.Equation f)            // lambda RHS: (t, y, dydt) -> void
+.equation(ODE ode)                   // RHS + analytic Jacobian: (t, y, dydt, jac) -> void
+.bounds(double t0, double tf)        // required; tf < t0 for backward integration
+.initialState(double... y0)          // required; copied internally
+.tolerances(double rtol, double... atol) // scalar or per-component vector; default 1e-3, 1e-6
+.maxStep(double h)                   // default Double.MAX_VALUE
+.firstStep(double h)                 // default NaN (auto-estimated via Hairer's formula)
+.evalAt(double[] ts)                 // output only at these times (monotone, within [t0,tf])
+.denseOutput(boolean b)              // build piecewise polynomial interpolant
+.detectors(ODEEvent... events)       // register event detectors
+.integrate()                         // → Trajectory (fresh workspace)
+.integrate(IVPPool workspace)        // → Trajectory (reuse workspace)
+```
+
+### Static Workspace Factory
+
+```java
+IVPPool ws = IVPIntegral.workspace(IVPMethod.RK45);  // allocate matching workspace type
+```
+
+---
+
+## 40. ODE — System Interface
+
+`com.curioloop.yum4j.quad.ode.ODE`
+
+```java
+// Lightweight RHS-only (lambda-friendly)
+@FunctionalInterface
+interface ODE.Equation {
+    void evaluate(double t, double[] y, double[] dydt);
+}
+
+// Full interface with optional analytic Jacobian
+interface ODE {
+    void evaluate(double t, double[] y, double[] dydt, double[] jac);
+    // jac: row-major n×n, jac[i*n+j] = ∂fᵢ/∂yⱼ; skip when jac == null
+}
+```
+
+### IVPMethod
+
+| Method | Type | Order | Stiff | Notes |
+|--------|------|-------|-------|-------|
+| `RK23` | Explicit | 3(2) | No | Bogacki-Shampine; loose tolerances |
+| `RK45` | Explicit | 5(4) | No | Dormand-Prince; general purpose (default) |
+| `DOP853` | Explicit | 8(5,3) | No | Hairer; tight tolerances, smooth problems |
+| `BDF` | Implicit | 1–5 | Yes | Variable-order; large stiff systems |
+| `Radau` | Implicit | 5 | Yes | Radau IIA; high accuracy stiff problems |
+
+---
+
+## 41. ODEEvent — Event Detection
+
+`com.curioloop.yum4j.quad.ode.ODEEvent`
+
+Defines a zero-crossing event of a scalar indicator g(t, y). The solver monitors sign changes after each step and uses Brent's method to locate the precise crossing time.
+
+```java
+new ODEEvent(
+    ODEEvent.Equation equation,   // g(t, y) → double; event fires on sign change
+    ODEEvent.Trigger trigger,     // RISING / FALLING / EITHER
+    int terminal                  // 0 = non-terminal; N > 0 = stop after N occurrences
+)
+```
+
+**ODEEvent.Trigger**:
+- `RISING` — g goes from negative to positive
+- `FALLING` — g goes from positive to negative
+- `EITHER` — either direction
+
+---
+
+## 42. Trajectory — ODE Result Type
+
+`com.curioloop.yum4j.quad.Trajectory`
+
+Immutable result of an ODE integration.
+
+### Fields
+
+```java
+sol.timeSeries()        // Trajectory.TimeSeries
+sol.timeSeries().t()        // double[] time points, length m (monotone)
+sol.timeSeries().y()        // double[] state, column-major: y[i*m+j] = equation i at time j
+sol.timeSeries().dim()      // number of equations
+
+sol.denseOutput()       // Trajectory.DenseOutput, null if not requested
+sol.events()            // Trajectory.EventPoint[][], null if no detectors
+                        // events()[i][j] = j-th occurrence of i-th ODEEvent
+```
+
+### Methods
+
+```java
+sol.status()              // Trajectory.Status: SUCCESS / EVENT / FAILED
+!sol.status().error()     // true unless FAILED
+sol.timeSeries().dim()    // n (number of equations)
+sol.timeSeries().t().length // m (number of output time points)
+sol.functionEvaluations() // total RHS evaluations
+sol.jacobianEvaluations() // Jacobian evaluations (0 for explicit methods)
+sol.luDecompositions()    // LU factorizations (0 for explicit methods)
+```
+
+### Trajectory.Status
+
+| Status | Description |
+|--------|-------------|
+| `SUCCESS` | Reached tf successfully |
+| `EVENT` | Stopped at a terminal event before tf |
+| `FAILED` | Step size became too small (stiffness or ill-conditioning) |
+
+### Trajectory.DenseOutput
+
+```java
+sol.denseOutput().interpolate(double t, double[] out)
+// Evaluates the piecewise polynomial at t ∈ [t0, tf], writes into out (zero allocation)
+// Throws IllegalArgumentException if t is out of range or out.length < n
+```
+
+### Trajectory.EventPoint
+
+```java
+sol.events()[i][j].t() // double — precisely located event time
+sol.events()[i][j].y() // double[] — interpolated state at event time, length n
+```
+
+---
+
+## 43. IVPPool — Workspace Reuse
+
+`com.curioloop.yum4j.quad.ode.IVPPool`
+
+Base workspace class. Subclasses: `RungeKuttaPool` (RK23/RK45/DOP853), `BDFPool` (BDF), `RadauPool` (Radau).
+
+Allocate via `IVPIntegral.workspace(IVPMethod)` and pass to `integrate(IVPPool)`.
+
+```java
+// Allocate once, reuse across many solves of the same method
+IVPPool ws = IVPIntegral.workspace(IVPMethod.RK45);
+
+for (double[] y0 : initialConditions) {
+    Trajectory r = Integrator.ode(IVPMethod.RK45)
+        .equation(fn).bounds(0.0, 1.0).initialState(y0)
+        .tolerances(1e-6, 1e-9).integrate(ws);
+    // process r
+}
+```
+
+The workspace is grown as needed (never shrunk). Passing a workspace of the wrong type causes it to be ignored and a fresh one allocated.
+
+---
+
+## 44. ODE Quick Examples
+
+```java
+import com.curioloop.yum4j.quad.Trajectory;
+import com.curioloop.yum4j.quad.ode.*;
+
+// ── Non-stiff: dy/dt = -y ──────────────────────────────────────────────────
+Trajectory sol = Integrator.ode(IVPMethod.RK45)
+    .equation((t, y, dydt) -> dydt[0] = -y[0])
+    .bounds(0.0, 5.0).initialState(1.0)
+    .tolerances(1e-6, 1e-9).integrate();
+
+double[] t = sol.timeSeries().t();
+double[] y = sol.timeSeries().y();  // y[0*m+j] = y(t[j])
+
+// ── Stiff: Van der Pol μ=1000 (BDF) ───────────────────────────────────────
+Trajectory stiff = Integrator.ode(IVPMethod.BDF)
+    .equation((t, y, dydt) -> {
+        dydt[0] = y[1];
+        dydt[1] = 1000 * (1 - y[0]*y[0]) * y[1] - y[0];
+    })
+    .bounds(0.0, 500.0).initialState(2.0, 0.0)
+    .tolerances(1e-3, 1e-6).integrate();
+
+// ── Analytic Jacobian (faster for stiff) ──────────────────────────────────
+ODE sys = (t, y, dydt, jac) -> {
+    dydt[0] = y[1];
+    dydt[1] = 1000 * (1 - y[0]*y[0]) * y[1] - y[0];
+    if (jac != null) {
+        jac[0] = 0;  jac[1] = 1;
+        jac[2] = -2000*y[0]*y[1] - 1;
+        jac[3] = 1000*(1 - y[0]*y[0]);
+    }
+};
+Trajectory sol2 = Integrator.ode(IVPMethod.Radau)
+    .equation(sys).bounds(0.0, 10.0).initialState(2.0, 0.0).integrate();
+
+// ── Dense output ──────────────────────────────────────────────────────────
+Trajectory dense = Integrator.ode(IVPMethod.RK45)
+    .equation((t, y, dydt) -> dydt[0] = -y[0])
+    .bounds(0.0, 5.0).initialState(1.0).denseOutput(true).integrate();
+
+double[] out = new double[1];
+dense.denseOutput().interpolate(2.5, out);  // y(2.5) ≈ e^{-2.5}
+
+// ── evalAt: output only at specific times ─────────────────────────────────
+Trajectory atPoints = Integrator.ode(IVPMethod.RK45)
+    .equation((t, y, dydt) -> dydt[0] = -y[0])
+    .bounds(0.0, 5.0).initialState(1.0)
+    .evalAt(new double[]{1.0, 2.0, 3.0, 4.0, 5.0}).integrate();
+
+// ── Event detection: projectile landing ───────────────────────────────────
+Trajectory event = Integrator.ode(IVPMethod.RK45)
+    .equation((t, y, dydt) -> { dydt[0] = y[1]; dydt[1] = -9.8; })
+    .bounds(0.0, 100.0).initialState(0.0, 50.0)
+    .detectors(new ODEEvent((t, y) -> y[0], ODEEvent.Trigger.FALLING, 1))
+    .integrate();
+// event.status() == Trajectory.Status.EVENT
+// event.events()[0][0].t() ≈ 100/9.8 ≈ 10.2 s
+
+// ── Workspace reuse ───────────────────────────────────────────────────────
+IVPPool ws = IVPIntegral.workspace(IVPMethod.BDF);
+for (double[] y0 : initialConditions) {
+    Trajectory r = Integrator.ode(IVPMethod.BDF)
+        .equation(stiffFn).bounds(0.0, 1.0).initialState(y0)
+        .tolerances(1e-4, 1e-7).integrate(ws);
+}
+```

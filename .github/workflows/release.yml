@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      VALHALLA_JDK_URL: https://download.java.net/java/early_access/valhalla/27/1/openjdk-27-jep401ea3+1-1_linux-x64_bin.tar.gz
+      VALHALLA_JDK_SHA256_URL: https://download.java.net/java/early_access/valhalla/27/1/openjdk-27-jep401ea3+1-1_linux-x64_bin.tar.gz.sha256
+      VALHALLA_JDK_VERSION: '27.0.0-ea'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Valhalla EA JDK 27
+        run: |
+          curl -fsSL "$VALHALLA_JDK_URL" -o "$RUNNER_TEMP/valhalla-jdk.tar.gz"
+          checksum=$(curl -fsSL "$VALHALLA_JDK_SHA256_URL")
+          printf '%s  %s\n' "$checksum" "$RUNNER_TEMP/valhalla-jdk.tar.gz" | sha256sum --check -
+
+      - name: Set up Valhalla EA JDK 27
+        uses: actions/setup-java@v4
+        with:
+          distribution: jdkfile
+          jdkFile: ${{ runner.temp }}/valhalla-jdk.tar.gz
+          java-version: ${{ env.VALHALLA_JDK_VERSION }}
+          architecture: x64
+          cache: maven
+          server-id: central
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+
+      - name: Print Java version
+        run: java -version
+
+      - name: Import GPG key
+        run: |
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          gpg --list-secret-keys --keyid-format LONG
+
+      - name: Set version
+        run: mvn versions:set -DnewVersion=${GITHUB_REF_NAME#v} -DgenerateBackupPoms=false
+
+      - name: Publish to Maven Central
+        run: |
+          mvn -B deploy -Dgpg.skip=false \
+            -Dgpg.passphrase="${{ secrets.GPG_PASSPHRASE }}" \
+            -Dgpg.executable=gpg
+        env:
+          MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}

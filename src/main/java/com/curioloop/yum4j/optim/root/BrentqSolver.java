@@ -1,0 +1,144 @@
+package com.curioloop.yum4j.optim.root;
+
+import com.curioloop.yum4j.optim.Optimization;
+
+
+import java.util.function.DoubleUnaryOperator;
+
+/**
+ * One-dimensional root finder using Brent's method.
+ *
+ * <p>Strictly mirrors the loop logic of {@code scipy/optimize/Zeros/brentq.c}.
+ * The algorithm combines bisection, secant, and inverse quadratic interpolation
+ * to achieve superlinear convergence while guaranteeing the bracket is maintained.</p>
+ *
+ * <p>Use {@link com.curioloop.yum4j.optim.RootFinder#brentq} for the public API.</p>
+ */
+public final class BrentqSolver {
+
+    /** Default absolute tolerance (matches scipy brentq default). */
+    public static final double DEFAULT_XTOL = 2e-12;
+
+    /** Default relative tolerance: 4 * machine epsilon (matches scipy brentq default). */
+    public static final double DEFAULT_RTOL = 4 * Math.ulp(1.0);  // 4 * DBL_EPSILON
+
+    /** Default maximum number of iterations. */
+    public static final int DEFAULT_MAXITER = 100;
+
+    // Prevent instantiation
+    private BrentqSolver() {}
+
+    /**
+     * Finds a root of {@code f} in the bracket {@code [xa, xb]}.
+     *
+     * <p>The algorithm is a strict port of {@code brentq.c} from SciPy:</p>
+     * <ol>
+     *   <li>If {@code f(xa) == 0} or {@code f(xb) == 0}, the endpoint is returned immediately.</li>
+     *   <li>If {@code f(xa) * f(xb) > 0}, an {@link IllegalArgumentException} is thrown.</li>
+     *   <li>Each iteration chooses between inverse quadratic interpolation, secant step,
+     *       or bisection, accepting the interpolation only when it is safe.</li>
+     *   <li>If {@code f(x)} returns {@code NaN} or {@code Infinity} at any point,
+     *       {@link Optimization.Status#ABNORMAL_TERMINATION} is returned.</li>
+     * </ol>
+     *
+     * @param f       the scalar function whose root is sought
+     * @param xa      left endpoint of the bracket
+     * @param xb      right endpoint of the bracket
+     * @param xtol    absolute tolerance (must be &gt;= 0)
+     * @param rtol    relative tolerance (must be &gt;= 0)
+     * @param maxiter maximum number of iterations
+     * @return an {@link Optimization} describing the outcome
+     * @throws IllegalArgumentException if {@code f(xa) * f(xb) > 0}
+     */
+    public static Optimization solve(
+            DoubleUnaryOperator f, double xa, double xb, double xtol, double rtol, int maxiter) {
+
+        double xpre = xa, xcur = xb;
+        double xblk = 0, fblk = 0, spre = 0, scur = 0;
+
+        double fpre = f.applyAsDouble(xpre);
+        double fcur = f.applyAsDouble(xcur);
+
+        // Handle endpoints that are already roots
+        if (fpre == 0) {
+            return new Optimization(xpre, null, 0, Optimization.Status.COEFFICIENT_TOLERANCE_REACHED, 0, 0);
+        }
+        if (fcur == 0) {
+            return new Optimization(xcur, null, 0, Optimization.Status.COEFFICIENT_TOLERANCE_REACHED, 0, 0);
+        }
+
+        // Bracket condition check
+        if (fpre * fcur > 0) {
+            throw new IllegalArgumentException(
+                    "f(a) and f(b) must have opposite signs: f(" + xa + ")=" + fpre +
+                    ", f(" + xb + ")=" + fcur);
+        }
+
+        // Check for NaN/Inf in initial evaluations
+        if (!Double.isFinite(fpre) || !Double.isFinite(fcur)) {
+            return new Optimization(xcur, null, Math.abs(fcur), Optimization.Status.ABNORMAL_TERMINATION, 0, 0);
+        }
+
+        for (int i = 1; i <= maxiter; i++) {
+
+            // scipy: fpre != 0 && fcur != 0 && signbit(fpre) != signbit(fcur)
+            // Equivalent to fpre*fcur < 0 when both are finite and non-zero
+            if (fpre != 0 && fcur != 0 && ((fpre < 0) != (fcur < 0))) {
+                xblk = xpre;
+                fblk = fpre;
+                spre = scur = xcur - xpre;
+            }
+
+            if (Math.abs(fblk) < Math.abs(fcur)) {
+                xpre = xcur;  xcur = xblk;  xblk = xpre;
+                fpre = fcur;  fcur = fblk;  fblk = fpre;
+            }
+
+            double delta = (xtol + rtol * Math.abs(xcur)) / 2.0;
+            double sbis  = (xblk - xcur) / 2.0;
+
+            // Convergence check
+            if (fcur == 0 || Math.abs(sbis) < delta) {
+                return new Optimization(xcur, null, Math.abs(fcur), Optimization.Status.COEFFICIENT_TOLERANCE_REACHED, i, i);
+            }
+
+            // Step selection
+            if (Math.abs(spre) > delta && Math.abs(fcur) < Math.abs(fpre)) {
+                double stry;
+                if (xpre == xblk) {
+                    // Secant step (interpolate)
+                    stry = -fcur * (xcur - xpre) / (fcur - fpre);
+                } else {
+                    // Inverse quadratic interpolation (extrapolate)
+                    double dpre = (fpre - fcur) / (xpre - xcur);
+                    double dblk = (fblk - fcur) / (xblk - xcur);
+                    stry = -fcur * (fblk * dblk - fpre * dpre) / (dblk * dpre * (fblk - fpre));
+                }
+
+                if (2.0 * Math.abs(stry) < Math.min(Math.abs(spre), 3.0 * Math.abs(sbis) - delta)) {
+                    spre = scur;
+                    scur = stry;    // Accept interpolation step
+                } else {
+                    spre = sbis;
+                    scur = sbis;    // Fall back to bisection
+                }
+            } else {
+                spre = sbis;
+                scur = sbis;        // Bisection
+            }
+
+            xpre = xcur;
+            fpre = fcur;
+            xcur += (Math.abs(scur) > delta) ? scur : (sbis > 0 ? delta : -delta);
+
+            fcur = f.applyAsDouble(xcur);
+
+            // Check for NaN/Inf after function evaluation
+            if (!Double.isFinite(fcur)) {
+                return new Optimization(xcur, null, Math.abs(fcur), Optimization.Status.ABNORMAL_TERMINATION, i, i);
+            }
+        }
+
+        return new Optimization(xcur, null, Math.abs(fcur), Optimization.Status.MAX_ITERATIONS_REACHED, maxiter, maxiter);
+    }
+}
