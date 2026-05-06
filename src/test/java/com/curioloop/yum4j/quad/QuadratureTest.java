@@ -3,6 +3,7 @@
  */
 package com.curioloop.yum4j.quad;
 
+import com.curioloop.yum4j.math.Gamma;
 import com.curioloop.yum4j.quad.adapt.AdaptivePool;
 import com.curioloop.yum4j.quad.adapt.AdaptiveIntegral;
 import com.curioloop.yum4j.quad.gauss.FixedIntegral;
@@ -632,7 +633,7 @@ class QuadratureTest {
     void generalizedLaguerreZeroMomentMatchesGamma() {
         // ∫₀^∞ x^s·e^{-x} dx = Γ(s+1)  — integrate f(x)=1 with the weight absorbed
         double s = 1.5;
-        double expected = Math.exp(GaussRule.logGamma(s + 1.0));
+        double expected = Math.exp(Gamma.lgamma(s + 1.0));
         double result = Integrator.weighted()
                 .function(x -> 1.0).points(8)
                 .rule(new GeneralizedLaguerreRule(s))
@@ -644,7 +645,7 @@ class QuadratureTest {
     void generalizedLaguerreIntegratesExponential() {
         // ∫₀^∞ x^s·e^{-x}·e^{-x} dx = ∫₀^∞ x^s·e^{-2x} dx = Γ(s+1)/2^{s+1}
         double s = 0.5;
-        double expected = Math.exp(GaussRule.logGamma(s + 1.0))
+        double expected = Math.exp(Gamma.lgamma(s + 1.0))
                          / Math.pow(2.0, s + 1.0);
         double result = Integrator.weighted()
                 .function(x -> Math.exp(-x)).points(16)
@@ -666,7 +667,7 @@ class QuadratureTest {
     void generalizedHermiteZeroMomentMatchesGamma() {
         // ∫₋∞^∞ |x|^{2s}·e^{-x²} dx = Γ(s+1/2)
         double s = 1.0;
-        double expected = Math.exp(GaussRule.logGamma(s + 0.5));
+        double expected = Math.exp(Gamma.lgamma(s + 0.5));
         double result = Integrator.weighted()
                 .function(x -> 1.0).points(8)
                 .rule(new GeneralizedHermiteRule(s))

@@ -1,0 +1,112 @@
+{
+  "meta": {
+    "module": "math",
+    "source": "Boost.Math Carlson symmetric integrals via tmp/BoostCarlsonSymmetricIntegralsProbe.cpp",
+    "boostVersion": "1.88.0",
+    "compiler": "Apple clang version 17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "1776496667"
+  },
+  "cases": [
+    {
+      "name": "rc_basic",
+      "function": "rc",
+      "x": 0,
+      "y": 4,
+      "z": 0,
+      "p": 0,
+      "expected": 0.78539816339744828,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "rc_negative_y_principal",
+      "function": "rc",
+      "x": 0.75,
+      "y": -0.25,
+      "z": 0,
+      "p": 0,
+      "expected": 1.3169578969248166,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "rf_core",
+      "function": "rf",
+      "x": 0.25,
+      "y": 1.5,
+      "z": 2,
+      "p": 0,
+      "expected": 0.96879755528443234,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "rf_single_zero",
+      "function": "rf",
+      "x": 0,
+      "y": 0.5,
+      "z": 2,
+      "p": 0,
+      "expected": 1.5248868380818958,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "rd_core",
+      "function": "rd",
+      "x": 0.25,
+      "y": 1.5,
+      "z": 2,
+      "p": 0,
+      "expected": 0.62521653014431033,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "rd_zero_x",
+      "function": "rd",
+      "x": 0,
+      "y": 0.5,
+      "z": 2,
+      "p": 0,
+      "expected": 1.3370818171827916,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "rj_core",
+      "function": "rj",
+      "x": 0.25,
+      "y": 1.5,
+      "z": 2,
+      "p": 0.75,
+      "expected": 1.1616529604212793,
+      "tolerance": 8.0000000000000002e-13
+    },
+    {
+      "name": "rj_negative_p_principal",
+      "function": "rj",
+      "x": 0.25,
+      "y": 1.5,
+      "z": 2,
+      "p": -0.5,
+      "expected": -0.28395084268139797,
+      "tolerance": 2e-12
+    },
+    {
+      "name": "rg_core",
+      "function": "rg",
+      "x": 0.25,
+      "y": 1.5,
+      "z": 2,
+      "p": 0,
+      "expected": 1.0941264955844967,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "rg_zero_branch",
+      "function": "rg",
+      "x": 2,
+      "y": 0.5,
+      "z": 0,
+      "p": 0,
+      "expected": 0.85634592949050015,
+      "tolerance": 4.9999999999999999e-13
+    }
+
+  ]
+}

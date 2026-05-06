@@ -3,6 +3,7 @@
  */
 package com.curioloop.yum4j.quad.gauss.rule;
 
+import com.curioloop.yum4j.math.Gamma;
 import com.curioloop.yum4j.quad.gauss.GaussRule;
 
 /**
@@ -13,7 +14,7 @@ import com.curioloop.yum4j.quad.gauss.GaussRule;
  * the Jacobi three-term recurrence.  The zero-th moment is:
  *   μ₀ = B(α+1, β+1) · 2^(α+β+1)
  *      = Γ(α+1)·Γ(β+1)/Γ(α+β+2) · 2^(α+β+1)
- * computed via {@link GaussRule#logGamma}.</p>
+ * computed via {@link Gamma#lgamma(double)}.</p>
  *
  * <p>Jacobi matrix diagonal (αₖ) and off-diagonal (βₖ) entries:
  *   αₖ = (β²−α²) / ((2k+α+β)(2k+α+β+2))
@@ -32,9 +33,9 @@ public record JacobiRule(double alpha, double beta) implements GaussRule {
     @Override
     public double zeroMoment() {
         return Math.exp((alpha + beta + 1.0) * LOG_TWO
-                + GaussRule.logGamma(alpha + 1.0)
-                + GaussRule.logGamma(beta + 1.0)
-                - GaussRule.logGamma(alpha + beta + 2.0));
+            + Gamma.lgamma(alpha + 1.0)
+            + Gamma.lgamma(beta + 1.0)
+            - Gamma.lgamma(alpha + beta + 2.0));
     }
 
     @Override

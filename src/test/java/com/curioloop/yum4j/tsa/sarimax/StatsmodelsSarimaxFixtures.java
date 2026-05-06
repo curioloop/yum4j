@@ -1,10 +1,12 @@
 package com.curioloop.yum4j.tsa.sarimax;
 
+import java.io.BufferedReader;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -12,8 +14,8 @@ import java.util.regex.Pattern;
 
 final class StatsmodelsSarimaxFixtures {
 
-    private static final Path RESULTS_DIR = findResultsDir();
-    private static final String SARIMAX_RESULTS = readReferenceFile("results_sarimax.py");
+    private static final String RESULTS_ROOT = "statsmodels/tsa/statespace/tests/results/";
+    private static final String SARIMAX_RESULTS = readReferenceResource("results_sarimax.py");
 
     private StatsmodelsSarimaxFixtures() {
     }
@@ -31,32 +33,28 @@ final class StatsmodelsSarimaxFixtures {
     }
 
     static List<String> coverageLines() {
-        try {
-            return Files.readAllLines(RESULTS_DIR.resolve("results_sarimax_coverage.csv"), StandardCharsets.UTF_8);
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(openResource("results_sarimax_coverage.csv"), StandardCharsets.UTF_8))) {
+            return reader.lines().toList();
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to read statsmodels SARIMAX coverage reference", e);
         }
     }
 
-    private static Path findResultsDir() {
-        Path relative = Path.of("reference", "statsmodels", "statsmodels", "tsa", "statespace", "tests", "results");
-        Path current = Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize();
-        while (current != null) {
-            Path candidate = current.resolve(relative);
-            if (Files.isRegularFile(candidate.resolve("results_sarimax.py"))) {
-                return candidate;
-            }
-            current = current.getParent();
-        }
-        throw new IllegalStateException("Could not locate statsmodels SARIMAX reference results under reference/statsmodels");
-    }
-
-    private static String readReferenceFile(String fileName) {
-        try {
-            return Files.readString(RESULTS_DIR.resolve(fileName), StandardCharsets.UTF_8);
+    private static String readReferenceResource(String fileName) {
+        try (InputStream input = openResource(fileName)) {
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to read statsmodels SARIMAX reference: " + fileName, e);
         }
+    }
+
+    private static InputStream openResource(String fileName) throws IOException {
+        String resourcePath = RESULTS_ROOT + fileName;
+        InputStream input = StatsmodelsSarimaxFixtures.class.getClassLoader().getResourceAsStream(resourcePath);
+        if (input == null) {
+            throw new FileNotFoundException(resourcePath);
+        }
+        return input;
     }
 
     private static String assignmentValue(String variableName) {
@@ -160,13 +158,13 @@ final class StatsmodelsSarimaxFixtures {
         char open = source.charAt(openIndex);
         char close = open == '[' ? ']' : '}';
         int depth = 0;
-        boolean inString = false;
+        char quote = 0;
         for (int index = openIndex; index < source.length(); index++) {
             char ch = source.charAt(index);
-            if (ch == '"') {
-                inString = !inString;
+            if ((ch == '"' || ch == '\'') && (index == 0 || source.charAt(index - 1) != '\\')) {
+                quote = quote == ch ? 0 : quote == 0 ? ch : quote;
             }
-            if (inString) {
+            if (quote != 0) {
                 continue;
             }
             if (ch == open) {
@@ -183,10 +181,11 @@ final class StatsmodelsSarimaxFixtures {
 
     private static String readQuotedString(String source, int from) {
         int start = skipWhitespace(source, from);
-        if (source.charAt(start) != '"') {
+        char quote = source.charAt(start);
+        if (quote != '"' && quote != '\'') {
             throw new IllegalArgumentException("Expected quoted statsmodels fixture key at " + start);
         }
-        int end = source.indexOf('"', start + 1);
+        int end = source.indexOf(quote, start + 1);
         if (end < 0) {
             throw new IllegalArgumentException("Unclosed statsmodels fixture key at " + start);
         }

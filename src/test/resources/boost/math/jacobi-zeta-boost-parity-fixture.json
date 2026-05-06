@@ -1,0 +1,67 @@
+{
+  "meta": {
+    "module": "math",
+    "source": "Boost.Math Jacobi zeta via tmp/BoostJacobiZetaProbe.cpp",
+    "boostVersion": "1.90.0",
+    "compiler": "17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-23T04:21:44Z"
+  },
+  "cases": [
+    {
+      "name": "jacobi_zeta_core",
+      "k": 0.5,
+      "phi": 0.75,
+      "expected": 0.066651105087229073,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "jacobi_zeta_negative_phi",
+      "k": 0.20000000000000001,
+      "phi": -2,
+      "expected": 0.0076709272055987552,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "jacobi_zeta_negative_k",
+      "k": -0.59999999999999998,
+      "phi": 0.80000000000000004,
+      "expected": 0.10012024322789095,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "jacobi_zeta_near_unity",
+      "k": 0.94999999999999996,
+      "phi": 1.1000000000000001,
+      "expected": 0.33475454600265803,
+      "tolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "jacobi_zeta_zero_modulus",
+      "k": 0,
+      "phi": 1.1000000000000001,
+      "expected": 0,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "jacobi_zeta_unity_special",
+      "k": 1,
+      "phi": 0.75,
+      "expected": 0.68163876002333412,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "jacobi_zeta_heuman_complementary_modulus",
+      "k": 0.71414284285428498,
+      "phi": 2,
+      "expected": -0.1208557085086395,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "jacobi_zeta_heuman_near_half_pi_above",
+      "k": 0.80000000000000004,
+      "phi": 1.5707973267948965,
+      "expected": -4.6612887475575434e-07,
+      "tolerance": 9.9999999999999998e-13
+    }
+  ]
+}

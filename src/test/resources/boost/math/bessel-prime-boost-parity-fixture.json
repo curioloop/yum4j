@@ -1,0 +1,77 @@
+{
+  "meta": {
+    "module": "math",
+    "source": "Boost.Math Bessel derivatives via tmp/BoostBesselPrimeProbe.cpp",
+    "boostVersion": "1.90.0",
+    "compiler": "17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-21T07:36:15Z"
+  },
+  "cases": [
+    {
+      "name": "small_series_noninteger",
+      "branch": "small-x series",
+      "nu": 0.75,
+      "x": 0.25,
+      "expectedJPrime": 0.66385735361836207,
+      "expectedYPrime": 5.4729642237426734,
+      "expectedIPrime": 0.70878837747695134,
+      "expectedKPrime": -9.3925251724380967,
+      "tolerance": 5.0000000000000002e-14
+    },
+    {
+      "name": "large_x_noninteger",
+      "branch": "large-x asymptotic",
+      "nu": 0.75,
+      "x": 20,
+      "expectedJPrime": 0.12551706740202651,
+      "expectedYPrime": 0.12682269970174559,
+      "expectedIPrime": 41878448.058089525,
+      "expectedKPrime": -5.9682742757761628e-10,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "integer_order_core",
+      "branch": "integer-order core",
+      "nu": 1,
+      "x": 2,
+      "expectedJPrime": -0.064471624737201041,
+      "expectedYPrime": 0.56389188842021398,
+      "expectedIPrime": 1.4842668750174028,
+      "expectedKPrime": -0.18382681365779466,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "half_integer_core",
+      "branch": "half-integer identities",
+      "nu": 0.5,
+      "x": 3,
+      "expectedJPrime": -0.46688351794086264,
+      "expectedYPrime": -0.01099995392172979,
+      "expectedIPrime": 3.86862060729357,
+      "expectedKPrime": -0.042030315987058683,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "negative_order_reflection",
+      "branch": "negative-order reflection",
+      "nu": -0.75,
+      "x": 2.5,
+      "expectedJPrime": 0.0096990706603469652,
+      "expectedYPrime": -0.51024870537105727,
+      "expectedIPrime": 2.3677864869895671,
+      "expectedKPrime": -0.083602417427866393,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "moderate_noninteger",
+      "branch": "continued-fraction core",
+      "nu": 1.25,
+      "x": 1.5,
+      "expectedJPrime": 0.22357175371203511,
+      "expectedYPrime": 0.6323789445783784,
+      "expectedIPrime": 0.89661577048381602,
+      "expectedKPrime": -0.48418327004326717,
+      "tolerance": 4.9999999999999999e-13
+    }
+  ]
+}

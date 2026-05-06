@@ -1,0 +1,83 @@
+{
+  "meta": {
+    "module": "math.statistics",
+    "source": "Boost.Math hyperexponential_distribution via tmp/BoostHyperexponentialDistributionProbe.cpp",
+    "boostVersion": "1.90.0",
+    "compiler": "Apple clang version 17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-22T03:47:04Z"
+  },
+  "cases": [
+    {
+      "name": "balanced_mixture",
+      "probabilities": [0.59999999999999998, 0.40000000000000002],
+      "rates": [1.5, 0.40000000000000002],
+      "x": 0.80000000000000004,
+      "pdf": 0.38725863665277238,
+      "cdf": 0.52882385802320242,
+      "ccdf": 0.47117614197679752,
+      "median": 0.72864857937021232,
+      "mean": 1.3999999999999999,
+      "variance": 3.5733333333333324,
+      "skewness": 3.081478659282253,
+      "kurtosis": 16.870795277344627,
+      "kurtosisExcess": 13.870795277344627,
+      "mode": 0,
+      "tolerance": 4.9999999999999999e-13,
+      "quantileTolerance": 1e-10
+    },
+    {
+      "name": "single_phase",
+      "probabilities": [1],
+      "rates": [2.5],
+      "x": 1.1000000000000001,
+      "pdf": 0.15981965301676893,
+      "cdf": 0.93607213879329243,
+      "ccdf": 0.06392786120670757,
+      "median": 0.2772588722239781,
+      "mean": 0.40000000000000002,
+      "variance": 0.15999999999999998,
+      "skewness": 2.0000000000000013,
+      "kurtosis": 9.0000000000000036,
+      "kurtosisExcess": 6.0000000000000036,
+      "mode": 0,
+      "tolerance": 4.9999999999999999e-13,
+      "quantileTolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "tail_heavy_three_phase",
+      "probabilities": [0.20000000000000001, 0.29999999999999999, 0.5],
+      "rates": [3, 1, 0.14999999999999999],
+      "x": 4,
+      "pdf": 0.046659250901084234,
+      "cdf": 0.72009826144389588,
+      "ccdf": 0.27990173855610412,
+      "median": 1.2822988563521835,
+      "mean": 3.7000000000000002,
+      "variance": 31.398888888888887,
+      "skewness": 2.7938213799913845,
+      "kurtosis": 13.865096070264533,
+      "kurtosisExcess": 10.865096070264533,
+      "mode": 0,
+      "tolerance": 4.9999999999999999e-13,
+      "quantileTolerance": 1e-10
+    },
+    {
+      "name": "fast_front_loaded",
+      "probabilities": [0.69999999999999996, 0.20000000000000001, 0.10000000000000001],
+      "rates": [4, 1.25, 0.29999999999999999],
+      "x": 0.45000000000000001,
+      "pdf": 0.63149407055381412,
+      "cdf": 0.68296262212990144,
+      "ccdf": 0.3170373778700985,
+      "median": 0.24728337686788104,
+      "mean": 0.668333333333333,
+      "variance": 2.1190527777777755,
+      "skewness": 5.9503465070053405,
+      "kurtosis": 54.200322587788662,
+      "kurtosisExcess": 51.200322587788662,
+      "mode": 0,
+      "tolerance": 4.9999999999999999e-13,
+      "quantileTolerance": 1e-10
+    }
+  ]
+}

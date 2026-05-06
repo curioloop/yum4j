@@ -1,0 +1,91 @@
+{
+  "meta": {
+    "module": "math",
+    "source": "Boost.Math Heuman lambda via tmp/BoostHeumanLambdaProbe.cpp",
+    "boostVersion": "1.90.0",
+    "compiler": "17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-22T12:51:36Z"
+  },
+  "cases": [
+    {
+      "name": "heuman_lambda_core",
+      "branch": "principal_branch",
+      "k": 0.5,
+      "phi": 0.75,
+      "expected": 0.63903379123240567,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "heuman_lambda_branch_b",
+      "branch": "large_amplitude",
+      "k": 0.5,
+      "phi": 2,
+      "expected": 1.1387579786297628,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "heuman_lambda_negative_phi",
+      "branch": "large_amplitude",
+      "k": 0.20000000000000001,
+      "phi": -2,
+      "expected": -1.0994638556130312,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "heuman_lambda_negative_k",
+      "branch": "principal_branch",
+      "k": -0.59999999999999998,
+      "phi": 0.80000000000000004,
+      "expected": 0.65337800763573051,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "heuman_lambda_near_split_below",
+      "branch": "principal_branch",
+      "k": 0.94999999999999996,
+      "phi": 1.55,
+      "expected": 0.98815112295917829,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "heuman_lambda_near_split_above",
+      "branch": "large_amplitude",
+      "k": 0.94999999999999996,
+      "phi": 1.8999999999999999,
+      "expected": 1.1891662391936859,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "heuman_lambda_zero_modulus",
+      "branch": "principal_branch",
+      "k": 0,
+      "phi": 1.1000000000000001,
+      "expected": 0.89120736006143564,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "heuman_lambda_near_unity_modulus",
+      "branch": "near_boundary_modulus",
+      "k": 0.999,
+      "phi": 0.75,
+      "expected": 0.47873338068517884,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "heuman_lambda_near_half_pi_below",
+      "branch": "principal_branch",
+      "k": 0.69999999999999996,
+      "phi": 1.5707953267948966,
+      "expected": 0.99983113169094417,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "heuman_lambda_near_half_pi_above",
+      "branch": "large_amplitude",
+      "k": 0.69999999999999996,
+      "phi": 1.5707973267948965,
+      "expected": 1.0000003768399774,
+      "tolerance": 5.0000000000000002e-11
+    }
+  ]
+}

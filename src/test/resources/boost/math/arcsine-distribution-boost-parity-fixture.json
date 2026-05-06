@@ -1,0 +1,53 @@
+{
+  "meta": {
+    "module": "math.statistics",
+    "source": "Boost.Math arcsine_distribution via tmp/BoostArcsineDistributionProbe.cpp",
+    "boostVersion": "1.90.0",
+    "compiler": "Apple LLVM 17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-27T12:24:22Z"
+  },
+  "cases": [
+    {
+      "name": "standard_interior",
+      "xMin": 0,
+      "xMax": 1,
+      "x": 0.25,
+      "pdf": 0.73510519389572282,
+      "cdf": 0.33333333333333331,
+      "ccdf": 0.66666666666666663,
+      "quantileProbability": 0.10000000000000001,
+      "quantile": 0.024471741852423214,
+      "upperTailProbability": 0.10000000000000001,
+      "upperTailQuantile": 0.97552825814757682,
+      "median": 0.5,
+      "mean": 0.5,
+      "variance": 0.125,
+      "skewness": 0,
+      "kurtosis": 1.5,
+      "kurtosisExcess": -1.5,
+      "tolerance": 4.9999999999999999e-13,
+      "quantileTolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "shifted_support",
+      "xMin": 2,
+      "xMax": 5,
+      "x": 3.125,
+      "pdf": 0.21916602455519996,
+      "cdf": 0.41956937674483369,
+      "ccdf": 0.58043062325516626,
+      "quantileProbability": 0.75,
+      "quantile": 4.560660171779821,
+      "upperTailProbability": 0.25,
+      "upperTailQuantile": 4.560660171779821,
+      "median": 3.5,
+      "mean": 3.5,
+      "variance": 1.125,
+      "skewness": 0,
+      "kurtosis": 1.5,
+      "kurtosisExcess": -1.5,
+      "tolerance": 4.9999999999999999e-13,
+      "quantileTolerance": 9.9999999999999998e-13
+    }
+  ]
+}

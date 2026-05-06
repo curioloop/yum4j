@@ -1,0 +1,144 @@
+{
+  "meta": {
+    "module": "math",
+    "source": "Boost.Math Lambert W functions via tmp/BoostLambertWProbe.cpp",
+    "boostVersion": "1.90.0",
+    "compiler": "17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-22T09:52:55Z"
+  },
+  "cases": [
+    {
+      "name": "w0_zero",
+      "function": "w0",
+      "z": 0,
+      "expected": 0,
+      "tolerance": 0
+    },
+    {
+      "name": "w0_branch_point",
+      "function": "w0",
+      "z": -0.36787944117144233,
+      "expected": -1,
+      "tolerance": 0
+    },
+    {
+      "name": "w0_small_negative",
+      "function": "w0",
+      "z": -0.03125,
+      "expected": -0.032275048007724211,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "w0_mid_negative",
+      "function": "w0",
+      "z": -0.20000000000000001,
+      "expected": -0.25917110181907371,
+      "tolerance": 5.0000000000000002e-14
+    },
+    {
+      "name": "w0_near_singularity",
+      "function": "w0",
+      "z": -0.36787944117044236,
+      "expected": -0.99999766837530135,
+      "tolerance": 4.9999999999999995e-11
+    },
+    {
+      "name": "w0_small_positive",
+      "function": "w0",
+      "z": 0.03125,
+      "expected": 0.030316816533032996,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "w0_unit",
+      "function": "w0",
+      "z": 1,
+      "expected": 0.56714329040978384,
+      "tolerance": 5.0000000000000002e-14
+    },
+    {
+      "name": "w0_large",
+      "function": "w0",
+      "z": 50,
+      "expected": 2.8608901779822107,
+      "tolerance": 5.0000000000000002e-14
+    },
+    {
+      "name": "w0_huge",
+      "function": "w0",
+      "z": 1.0000000000000001e+300,
+      "expected": 684.24720862976085,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "wm1_branch_point",
+      "function": "wm1",
+      "z": -0.36787944117144233,
+      "expected": -1,
+      "tolerance": 0
+    },
+    {
+      "name": "wm1_mid_negative",
+      "function": "wm1",
+      "z": -0.10000000000000001,
+      "expected": -3.5771520639572971,
+      "tolerance": 5.0000000000000002e-14
+    },
+    {
+      "name": "wm1_near_zero",
+      "function": "wm1",
+      "z": -9.9999999999999995e-07,
+      "expected": -16.626508901372475,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "wm1_tiny",
+      "function": "wm1",
+      "z": -1e-300,
+      "expected": -697.32277629546013,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "wm1_near_singularity",
+      "function": "wm1",
+      "z": -0.36787944117044236,
+      "expected": -1.0000023316283229,
+      "tolerance": 4.9999999999999995e-11
+    },
+    {
+      "name": "w0Prime_zero",
+      "function": "w0Prime",
+      "z": 0,
+      "expected": 1,
+      "tolerance": 0
+    },
+    {
+      "name": "w0Prime_interior",
+      "function": "w0Prime",
+      "z": 0.20000000000000001,
+      "expected": 0.72253257431954443,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "w0Prime_large",
+      "function": "w0Prime",
+      "z": 25,
+      "expected": 0.028095771147908882,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "wm1Prime_interior",
+      "function": "wm1Prime",
+      "z": -0.10000000000000001,
+      "expected": -13.880252213229781,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "wm1Prime_near_zero",
+      "function": "wm1Prime",
+      "z": -9.9999999999999995e-07,
+      "expected": -1063993.8201367657,
+      "tolerance": 5.0000000000000002e-11
+    }
+  ]
+}
