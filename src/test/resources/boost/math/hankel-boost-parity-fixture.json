@@ -1,0 +1,171 @@
+{
+  "meta": {
+    "module": "math",
+    "source": "Boost.Math Hankel functions via tmp/BoostHankelProbe.cpp",
+    "boostVersion": "1.90.0",
+    "compiler": "17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-22T15:13:24Z"
+  },
+  "cases": [
+    {
+      "name": "cyl_h1_small_noninteger",
+      "function": "cylHankel1",
+      "branch": "positive-small",
+      "nu": 0.75,
+      "x": 0.25,
+      "expectedReal": 0.22670103696847779,
+      "expectedImag": -1.9669171660741018,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "cyl_h2_small_noninteger",
+      "function": "cylHankel2",
+      "branch": "positive-small",
+      "nu": 0.75,
+      "x": 0.25,
+      "expectedReal": 0.22670103696847779,
+      "expectedImag": 1.9669171660741018,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "cyl_h1_integer_core",
+      "function": "cylHankel1",
+      "branch": "positive-integer",
+      "nu": 1,
+      "x": 2,
+      "expectedReal": 0.57672480775687307,
+      "expectedImag": -0.10703243154093753,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "cyl_h2_integer_core",
+      "function": "cylHankel2",
+      "branch": "positive-integer",
+      "nu": 1,
+      "x": 2,
+      "expectedReal": 0.57672480775687307,
+      "expectedImag": 0.10703243154093753,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "cyl_h1_large_noninteger",
+      "function": "cylHankel1",
+      "branch": "positive-large",
+      "nu": 0.75,
+      "x": 20,
+      "expectedReal": 0.12365181399671953,
+      "expectedImag": -0.12866084333034913,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "cyl_h2_large_noninteger",
+      "function": "cylHankel2",
+      "branch": "positive-large",
+      "nu": 0.75,
+      "x": 20,
+      "expectedReal": 0.12365181399671953,
+      "expectedImag": 0.12866084333034913,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "cyl_h1_negative_noninteger",
+      "function": "cylHankel1",
+      "branch": "negative-noninteger",
+      "nu": 0.5,
+      "x": -2,
+      "expectedReal": 0.23478571040624835,
+      "expectedImag": 0.51301613656182798,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "cyl_h2_negative_noninteger",
+      "function": "cylHankel2",
+      "branch": "negative-noninteger",
+      "nu": 0.5,
+      "x": -2,
+      "expectedReal": -0.23478571040624829,
+      "expectedImag": 0.51301613656182798,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "cyl_h1_negative_integer",
+      "function": "cylHankel1",
+      "branch": "negative-integer",
+      "nu": 1,
+      "x": -2,
+      "expectedReal": 0.57672480775687318,
+      "expectedImag": 0.10703243154093754,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "cyl_h2_negative_integer",
+      "function": "cylHankel2",
+      "branch": "negative-integer",
+      "nu": 1,
+      "x": -2,
+      "expectedReal": -1.7301744232706195,
+      "expectedImag": -0.10703243154093754,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "sph_h1_order_zero_positive",
+      "function": "sphHankel1",
+      "branch": "spherical-positive",
+      "nu": 0,
+      "x": 2,
+      "expectedReal": 0.45464871341284097,
+      "expectedImag": 0.20807341827357104,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "sph_h2_order_zero_positive",
+      "function": "sphHankel2",
+      "branch": "spherical-positive",
+      "nu": 0,
+      "x": 2,
+      "expectedReal": 0.45464871341284097,
+      "expectedImag": -0.20807341827357104,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "sph_h1_noninteger_positive",
+      "function": "sphHankel1",
+      "branch": "spherical-noninteger",
+      "nu": 1.25,
+      "x": 3,
+      "expectedReal": 0.35862151424013911,
+      "expectedImag": -0.028778618572940954,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "sph_h2_noninteger_positive",
+      "function": "sphHankel2",
+      "branch": "spherical-noninteger",
+      "nu": 1.25,
+      "x": 3,
+      "expectedReal": 0.35862151424013911,
+      "expectedImag": 0.028778618572940954,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "sph_h1_order_zero_negative",
+      "function": "sphHankel1",
+      "branch": "spherical-negative",
+      "nu": 0,
+      "x": -2,
+      "expectedReal": 0.45464871341284097,
+      "expectedImag": -0.20807341827357104,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "sph_h2_order_zero_negative",
+      "function": "sphHankel2",
+      "branch": "spherical-negative",
+      "nu": 0,
+      "x": -2,
+      "expectedReal": 0.45464871341284097,
+      "expectedImag": 0.20807341827357101,
+      "tolerance": 4.9999999999999999e-13
+    }
+  ]
+}

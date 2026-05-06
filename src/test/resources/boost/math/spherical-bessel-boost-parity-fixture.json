@@ -1,0 +1,66 @@
+{
+  "meta": {
+    "module": "math",
+    "source": "Boost.Math spherical Bessel functions via tmp/BoostSphericalBesselProbe.cpp",
+    "boostVersion": "1.90.0",
+    "compiler": "17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-21T07:36:16Z"
+  },
+  "cases": [
+    {
+      "name": "small_series_n1",
+      "branch": "small-z series",
+      "n": 1,
+      "x": 0.25,
+      "expectedSphBessel": 0.082813661229787727,
+      "expectedSphNeumann": -16.492214584388403,
+      "expectedSphBesselPrime": 0.32710654717978976,
+      "expectedSphNeumannPrime": 128.06206698826469,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "small_series_n4",
+      "branch": "small-z series",
+      "n": 4,
+      "x": 0.5,
+      "expectedSphBessel": 6.5389606152389695e-05,
+      "expectedSphNeumann": -3420.7607341057915,
+      "expectedSphBesselPrime": 0.00052013938234366007,
+      "expectedSphNeumannPrime": 33961.477294134296,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "closed_form_n0",
+      "branch": "closed-form n=0",
+      "n": 0,
+      "x": 2,
+      "expectedSphBessel": 0.45464871341284085,
+      "expectedSphNeumann": 0.20807341827357104,
+      "expectedSphBesselPrime": -0.43539777497999155,
+      "expectedSphNeumannPrime": 0.35061200427605521,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "moderate_n2",
+      "branch": "linear recurrence core",
+      "n": 2,
+      "x": 3,
+      "expectedSphBessel": 0.29863749707573362,
+      "expectedSphNeumann": -0.26703833526449916,
+      "expectedSphBesselPrime": 0.047040002686622513,
+      "expectedSphNeumannPrime": 0.32999749886681523,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "higher_order_n6",
+      "branch": "higher-order oscillatory",
+      "n": 6,
+      "x": 8,
+      "expectedSphBessel": 0.15311811193133967,
+      "expectedSphNeumann": -0.038290376860700234,
+      "expectedSphBesselPrime": -0.0074341276173289367,
+      "expectedSphNeumannPrime": 0.10390446530082727,
+      "tolerance": 4.9999999999999997e-12
+    }
+  ]
+}

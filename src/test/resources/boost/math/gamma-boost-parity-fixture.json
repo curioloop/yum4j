@@ -1,0 +1,95 @@
+{
+  "meta": {
+    "module": "math",
+    "source": "Boost.Math gamma special functions via tmp/BoostGammaProbe.cpp",
+    "boostVersion": "1.90.0",
+    "compiler": "17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-20T17:47:36Z"
+  },
+  "cases": [
+    {
+      "name": "small_series",
+      "branch": "lower-tail series",
+      "a": 0.20000000000000001,
+      "x": 0.40000000000000002,
+      "expectedP": 0.85233707331424413,
+      "expectedQ": 0.14766292668575579,
+      "expectedDerivative": 0.30390770157026437,
+      "inverseXFromP": 0.40000000000000013,
+      "inverseXFromQ": 0.39999999999999997,
+      "inverseAFromP": 0.20000000000000012,
+      "inverseAFromQ": 0.20000000000000001,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "half_integer_q",
+      "branch": "half-integer complement",
+      "a": 3.5,
+      "x": 2,
+      "expectedP": 0.22022259152428406,
+      "expectedQ": 0.77977740847571619,
+      "expectedDerivative": 0.23036145712293565,
+      "inverseXFromP": 1.9999999999999996,
+      "inverseXFromQ": 2.0000000000000004,
+      "inverseAFromP": 3.5,
+      "inverseAFromQ": 3.5000000000000018,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "tiny_x",
+      "branch": "small-x asymptotic",
+      "a": 5,
+      "x": 1e-10,
+      "expectedP": 8.3333333326388899e-53,
+      "expectedQ": 1,
+      "expectedDerivative": 4.1666666662500008e-42,
+      "inverseXFromP": 1e-10,
+      "inverseXFromQ": 0,
+      "inverseAFromP": 5,
+      "inverseAFromQ": null,
+      "tolerance": 5.0000000000000002e-14
+    },
+    {
+      "name": "temme_center",
+      "branch": "Temme large-a center",
+      "a": 400,
+      "x": 400,
+      "expectedP": 0.50664912983890553,
+      "expectedQ": 0.49335087016109452,
+      "expectedDerivative": 0.019942958805033047,
+      "inverseXFromP": 400,
+      "inverseXFromQ": 400,
+      "inverseAFromP": 399.99999999999989,
+      "inverseAFromQ": 400,
+      "tolerance": 2.0000000000000001e-13
+    },
+    {
+      "name": "large_x_q",
+      "branch": "large-x upper tail",
+      "a": 40,
+      "x": 2000,
+      "expectedP": 1,
+      "expectedQ": 0,
+      "expectedDerivative": 0,
+      "inverseXFromP": null,
+      "inverseXFromQ": null,
+      "inverseAFromP": null,
+      "inverseAFromQ": null,
+      "tolerance": 0
+    },
+    {
+      "name": "cev_gamma_p",
+      "branch": "extreme lower upper-tail probability",
+      "a": 0.75,
+      "x": 18,
+      "expectedP": 0.9999999940447144,
+      "expectedQ": 5.9552855595512935e-09,
+      "expectedDerivative": 6.0338902142043366e-09,
+      "inverseXFromP": 17.99999999362926,
+      "inverseXFromQ": 18,
+      "inverseAFromP": 0.75000000160234115,
+      "inverseAFromQ": 0.74999999999999978,
+      "tolerance": 5e-15
+    }
+  ]
+}

@@ -268,30 +268,4 @@ public interface GaussRule {
      */
     static GaussRule gegenbauer(double lambda) { return new JacobiRule(lambda - 0.5, lambda - 0.5); }
 
-    // -----------------------------------------------------------------------
-    // Utility: log-Gamma function (Lanczos approximation)
-    // -----------------------------------------------------------------------
-
-    static final double LOG_TWO = Math.log(2.0);
-
-    static final double[] LANCZOS = {
-            676.5203681218851, -1259.1392167224028, 771.3234287776531,
-            -176.6150291621406, 12.507343278686905, -0.13857109526572012,
-            9.984369578019572e-6, 1.5056327351493116e-7
-    };
-
-    /**
-     * Computes ln Γ(x) via the Lanczos approximation.
-     *
-     * <p>Used internally by {@link JacobiRule}, {@link GeneralizedLaguerreRule},
-     * and {@link GeneralizedHermiteRule} to compute zero-th moments.</p>
-     */
-    public static double logGamma(double x) {
-        if (x < 0.5) return Math.log(Math.PI) - Math.log(Math.sin(Math.PI * x)) - logGamma(1.0 - x);
-        double s = x - 1.0, sum = 0.9999999999998099;
-        for (int i = 0; i < LANCZOS.length; i++) sum += LANCZOS[i] / (s + i + 1.0);
-        double t = s + LANCZOS.length - 0.5;
-        return 0.9189385332046727 + (s + 0.5) * Math.log(t) - t + Math.log(sum);
-    }
-
 }

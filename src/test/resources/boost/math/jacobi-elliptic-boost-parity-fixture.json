@@ -1,0 +1,235 @@
+{
+  "meta": {
+    "module": "math",
+    "source": "Boost.Math Jacobi elliptic functions via tmp/BoostJacobiEllipticProbe.cpp",
+    "boostVersion": "1.90.0",
+    "compiler": "17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-23T05:37:54Z"
+  },
+  "cases": [
+    {
+      "name": "sn_zero_modulus",
+      "function": "sn",
+      "k": 0,
+      "theta": 0.69999999999999996,
+      "expected": 0.64421768723769102,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "cn_zero_modulus",
+      "function": "cn",
+      "k": 0,
+      "theta": 0.69999999999999996,
+      "expected": 0.7648421872844885,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "dn_zero_modulus",
+      "function": "dn",
+      "k": 0,
+      "theta": 0.69999999999999996,
+      "expected": 1,
+      "tolerance": 0
+    },
+    {
+      "name": "sn_unit_modulus",
+      "function": "sn",
+      "k": 1,
+      "theta": 0.69999999999999996,
+      "expected": 0.6043677771171635,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "cn_unit_modulus",
+      "function": "cn",
+      "k": 1,
+      "theta": 0.69999999999999996,
+      "expected": 0.79670545999287501,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "dn_unit_modulus",
+      "function": "dn",
+      "k": 1,
+      "theta": 0.69999999999999996,
+      "expected": 0.79670545999287501,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "sn_core",
+      "function": "sn",
+      "k": 0.69999999999999996,
+      "theta": 0.80000000000000004,
+      "expected": 0.69146832464142716,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "cn_core",
+      "function": "cn",
+      "k": 0.69999999999999996,
+      "theta": 0.80000000000000004,
+      "expected": 0.72240678015753557,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "dn_core",
+      "function": "dn",
+      "k": 0.69999999999999996,
+      "theta": 0.80000000000000004,
+      "expected": 0.87505260553215491,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "sn_small_modulus",
+      "function": "sn",
+      "k": 1.0000000000000001e-05,
+      "theta": 0.90000000000000002,
+      "expected": 0.7833269096210641,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "cn_small_modulus",
+      "function": "cn",
+      "k": 1.0000000000000001e-05,
+      "theta": 0.90000000000000002,
+      "expected": 0.6216099682787537,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "dn_small_modulus",
+      "function": "dn",
+      "k": 1.0000000000000001e-05,
+      "theta": 0.90000000000000002,
+      "expected": 0.99999999996931999,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "sn_above_one",
+      "function": "sn",
+      "k": 1.7,
+      "theta": 0.40000000000000002,
+      "expected": 0.36230699981215925,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "cn_above_one",
+      "function": "cn",
+      "k": 1.7,
+      "theta": 0.40000000000000002,
+      "expected": 0.93205881675305879,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "dn_above_one",
+      "function": "dn",
+      "k": 1.7,
+      "theta": 0.40000000000000002,
+      "expected": 0.7878072184828937,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "cn_quarter_period",
+      "function": "cn",
+      "k": 0.69999999999999996,
+      "theta": 1.8456939983747234,
+      "expected": 2.8327694488239898e-16,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "nc_quarter_period",
+      "function": "nc",
+      "k": 0.69999999999999996,
+      "theta": 1.8456939983747234,
+      "expected": 3530114321217157.5,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "cd_quarter_period",
+      "function": "cd",
+      "k": 0.69999999999999996,
+      "theta": 1.8456939983747234,
+      "expected": 2.8327694488239898e-16,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "dc_quarter_period",
+      "function": "dc",
+      "k": 0.69999999999999996,
+      "theta": 1.8456939983747234,
+      "expected": 3530114321217157.5,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "cd_ratio",
+      "function": "cd",
+      "k": 0.75,
+      "theta": 0.40000000000000002,
+      "expected": 0.96416853883990572,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "dc_ratio",
+      "function": "dc",
+      "k": 0.75,
+      "theta": 0.40000000000000002,
+      "expected": 1.0371630681947026,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "ns_ratio",
+      "function": "ns",
+      "k": 0.75,
+      "theta": 0.40000000000000002,
+      "expected": 2.603620634277013,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "sd_ratio",
+      "function": "sd",
+      "k": 0.75,
+      "theta": 0.40000000000000002,
+      "expected": 0.40108147718407883,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "ds_ratio",
+      "function": "ds",
+      "k": 0.75,
+      "theta": 0.40000000000000002,
+      "expected": 2.4932589932121045,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "nc_ratio",
+      "function": "nc",
+      "k": 0.75,
+      "theta": 0.40000000000000002,
+      "expected": 1.0830720646405227,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "nd_ratio",
+      "function": "nd",
+      "k": 0.75,
+      "theta": 0.40000000000000002,
+      "expected": 1.0442640100227727,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "sc_ratio",
+      "function": "sc",
+      "k": 0.75,
+      "theta": 0.40000000000000002,
+      "expected": 0.41598689547230283,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "cs_ratio",
+      "function": "cs",
+      "k": 0.75,
+      "theta": 0.40000000000000002,
+      "expected": 2.4039218804347691,
+      "tolerance": 4.9999999999999999e-13
+    }
+  ]
+}

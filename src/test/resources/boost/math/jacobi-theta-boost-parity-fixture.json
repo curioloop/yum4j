@@ -1,0 +1,146 @@
+{
+  "meta": {
+    "module": "math",
+    "source": "Boost.Math Jacobi theta functions via tmp/BoostJacobiThetaProbe.cpp",
+    "boostVersion": "1.90.0",
+    "compiler": "17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-23T06:05:19Z"
+  },
+  "cases": [
+    {
+      "name": "theta1_q_core",
+      "function": "theta1",
+      "z": 0.5,
+      "q": 0.20000000000000001,
+      "tau": null,
+      "expected": 0.58790838406953938,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "theta2_q_core",
+      "function": "theta2",
+      "z": 0.5,
+      "q": 0.20000000000000001,
+      "tau": null,
+      "expected": 1.1774654635569162,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "theta3_q_core",
+      "function": "theta3",
+      "z": 0.5,
+      "q": 0.20000000000000001,
+      "tau": null,
+      "expected": 1.2147882387094211,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "theta4_q_core",
+      "function": "theta4",
+      "z": 0.5,
+      "q": 0.20000000000000001,
+      "tau": null,
+      "expected": 0.78254842151954251,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "theta1_tau_modular",
+      "function": "theta1Tau",
+      "z": 0.5,
+      "q": null,
+      "tau": 0.75,
+      "expected": 0.52207983558937143,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "theta2_tau_modular",
+      "function": "theta2Tau",
+      "z": 0.5,
+      "q": null,
+      "tau": 0.75,
+      "expected": 0.97456651085427981,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "theta3_tau_modular",
+      "function": "theta3Tau",
+      "z": 0.5,
+      "q": null,
+      "tau": 0.75,
+      "expected": 1.1023527811457967,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "theta4_tau_modular",
+      "function": "theta4Tau",
+      "z": 0.5,
+      "q": null,
+      "tau": 0.75,
+      "expected": 0.89751288745841185,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "theta2_tau_zero",
+      "function": "theta2Tau",
+      "z": 0,
+      "q": null,
+      "tau": 0.34999999999999998,
+      "expected": 1.689881165251474,
+      "tolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "theta3_tau_zero",
+      "function": "theta3Tau",
+      "z": 0,
+      "q": null,
+      "tau": 0.34999999999999998,
+      "expected": 1.6907358536625943,
+      "tolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "theta4_tau_zero",
+      "function": "theta4Tau",
+      "z": 0,
+      "q": null,
+      "tau": 0.34999999999999998,
+      "expected": 0.35846061203632756,
+      "tolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "theta3_m1_q_small",
+      "function": "theta3MinusOne",
+      "z": 0.20000000000000001,
+      "q": 0.01,
+      "tau": null,
+      "expected": 0.0184212338141919,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "theta4_m1_q_small",
+      "function": "theta4MinusOne",
+      "z": 0.20000000000000001,
+      "q": 0.01,
+      "tau": null,
+      "expected": -0.018421205945923527,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "theta3_m1_tau_large",
+      "function": "theta3MinusOneTau",
+      "z": 0.40000000000000002,
+      "q": null,
+      "tau": 1.5,
+      "expected": 0.012517437872559397,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "theta4_m1_tau_large",
+      "function": "theta4MinusOneTau",
+      "z": 0.40000000000000002,
+      "q": null,
+      "tau": 1.5,
+      "expected": -0.01251743863319669,
+      "tolerance": 5e-15
+    }
+  ]
+}

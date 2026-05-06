@@ -1,0 +1,323 @@
+{
+  "meta": {
+    "module": "math",
+    "source": "Boost.Math exponential integrals via tmp/BoostExpintProbe.cpp",
+    "boostVersion": "1.90.0",
+    "compiler": "17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-22T10:18:35Z"
+  },
+  "cases": [
+    {
+      "name": "ei_negative_large",
+      "function": "ei",
+      "n": 0,
+      "z": -50.5,
+      "expected": -2.2723713293221936e-24,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ei_negative_unit",
+      "function": "ei",
+      "n": 0,
+      "z": -1,
+      "expected": -0.21938393439552029,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ei_negative_half",
+      "function": "ei",
+      "n": 0,
+      "z": -0.5,
+      "expected": -0.55977359477616095,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ei_negative_small",
+      "function": "ei",
+      "n": 0,
+      "z": -0.125,
+      "expected": -1.6234256405841687,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ei_negative_tiny",
+      "function": "ei",
+      "n": 0,
+      "z": -0.0009765625,
+      "expected": -6.3552324648310714,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ei_positive_tiny",
+      "function": "ei",
+      "n": 0,
+      "z": 0.0009765625,
+      "expected": -6.3532793397275906,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ei_positive_small",
+      "function": "ei",
+      "n": 0,
+      "z": 0.125,
+      "expected": -1.3732085249429833,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ei_positive_half",
+      "function": "ei",
+      "n": 0,
+      "z": 0.5,
+      "expected": 0.45421990486317354,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ei_positive_unit",
+      "function": "ei",
+      "n": 0,
+      "z": 1,
+      "expected": 1.8951178163559366,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ei_boundary_6",
+      "function": "ei",
+      "n": 0,
+      "z": 6,
+      "expected": 85.989762142439204,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ei_interval_8",
+      "function": "ei",
+      "n": 0,
+      "z": 8,
+      "expected": 440.37989953483827,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ei_boundary_10",
+      "function": "ei",
+      "n": 0,
+      "z": 10,
+      "expected": 2492.2289762418782,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ei_boundary_20",
+      "function": "ei",
+      "n": 0,
+      "z": 20,
+      "expected": 25615652.664056588,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ei_boundary_40",
+      "function": "ei",
+      "n": 0,
+      "z": 40,
+      "expected": 6039718263611241,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ei_positive_large",
+      "function": "ei",
+      "n": 0,
+      "z": 50.5,
+      "expected": 1.7276319560291182e+20,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en0_tiny",
+      "function": "en",
+      "n": 0,
+      "z": 0.0009765625,
+      "expected": 1023.0004881223431,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en0_small",
+      "function": "en",
+      "n": 0,
+      "z": 0.125,
+      "expected": 7.0599752206767636,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en0_mid",
+      "function": "en",
+      "n": 0,
+      "z": 1.5,
+      "expected": 0.14875344009895322,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en0_large",
+      "function": "en",
+      "n": 0,
+      "z": 50,
+      "expected": 3.8574996959278354e-24,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en1_tiny",
+      "function": "en",
+      "n": 1,
+      "z": 0.0009765625,
+      "expected": 6.3552324648310714,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en1_small",
+      "function": "en",
+      "n": 1,
+      "z": 0.125,
+      "expected": 1.6234256405841687,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en1_half",
+      "function": "en",
+      "n": 1,
+      "z": 0.5,
+      "expected": 0.55977359477616095,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en1_mid",
+      "function": "en",
+      "n": 1,
+      "z": 1.5,
+      "expected": 0.10001958240663264,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en1_large",
+      "function": "en",
+      "n": 1,
+      "z": 50,
+      "expected": 3.7832640295504591e-24,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en2_tiny",
+      "function": "en",
+      "n": 2,
+      "z": 0.0009765625,
+      "expected": 0.99281763247803911,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en2_small",
+      "function": "en",
+      "n": 2,
+      "z": 0.125,
+      "expected": 0.67956869751157434,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en2_half",
+      "function": "en",
+      "n": 2,
+      "z": 0.5,
+      "expected": 0.32664386232455128,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en2_mid",
+      "function": "en",
+      "n": 2,
+      "z": 1.5,
+      "expected": 0.073100786538481316,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en2_large",
+      "function": "en",
+      "n": 2,
+      "z": 50,
+      "expected": 3.711783318868828e-24,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en5_small_series",
+      "function": "en",
+      "n": 5,
+      "z": 0.125,
+      "expected": 0.21195078838966586,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en5_fraction_edge",
+      "function": "en",
+      "n": 5,
+      "z": 0.5,
+      "expected": 0.13097731169586482,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en5_mid",
+      "function": "en",
+      "n": 5,
+      "z": 1.5,
+      "expected": 0.038529924425495243,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en5_large",
+      "function": "en",
+      "n": 5,
+      "z": 4.5,
+      "expected": 0.0012311157382296331,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en5_huge",
+      "function": "en",
+      "n": 5,
+      "z": 50,
+      "expected": 3.5124400631332395e-24,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en22_small_series",
+      "function": "en",
+      "n": 22,
+      "z": 0.125,
+      "expected": 0.041762730174712888,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en22_series_edge",
+      "function": "en",
+      "n": 22,
+      "z": 0.5,
+      "expected": 0.028178840877963712,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en22_fraction",
+      "function": "en",
+      "n": 22,
+      "z": 1.5,
+      "expected": 0.0098864453561701478,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en22_large",
+      "function": "en",
+      "n": 22,
+      "z": 4.5,
+      "expected": 0.00043257793497205411,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "en22_huge",
+      "function": "en",
+      "n": 22,
+      "z": 50,
+      "expected": 2.6900194251201626e-24,
+      "tolerance": 4.9999999999999997e-12
+    }
+  ]
+}

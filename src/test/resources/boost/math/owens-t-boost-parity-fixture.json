@@ -1,0 +1,123 @@
+{
+  "meta": {
+    "module": "math",
+    "source": "Boost.Math Owen's T via tmp/BoostOwensTProbe.cpp",
+    "boostVersion": "1.90.0",
+    "compiler": "17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-21T01:42:45Z"
+  },
+  "cases": [
+    {
+      "name": "t1_core",
+      "h": 0.0625,
+      "a": 0.25,
+      "expected": 0.038911930234701367,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "t2_core",
+      "h": 6.5,
+      "a": 0.4375,
+      "expected": 2.0005773048508311e-11,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "t3_core",
+      "h": 7,
+      "a": 0.96875,
+      "expected": 6.3990627193898696e-13,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "t4_core",
+      "h": 4.78125,
+      "a": 0.0625,
+      "expected": 1.0632974804687466e-07,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "t5_core",
+      "h": 2,
+      "a": 0.5,
+      "expected": 0.0086250779855215082,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "t6_core",
+      "h": 1,
+      "a": 0.99999749999999998,
+      "expected": 0.066741808978228567,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "transform_t2",
+      "h": 0.4375,
+      "a": 6.5,
+      "expected": 0.16540130125449395,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "transform_t3",
+      "h": 0.96875,
+      "a": 7,
+      "expected": 0.08316748474602971,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "transform_t4",
+      "h": 0.0625,
+      "a": 4.78125,
+      "expected": 0.21571185819897989,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "transform_t5",
+      "h": 0.5,
+      "a": 2,
+      "expected": 0.14158060365397837,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "negative_a",
+      "h": 0.5,
+      "a": -2,
+      "expected": -0.14158060365397837,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "negative_h",
+      "h": -0.5,
+      "a": 2,
+      "expected": 0.14158060365397837,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "h_zero_small_a",
+      "h": 0,
+      "a": 0.5,
+      "expected": 0.073791808825216645,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "h_zero_large_a",
+      "h": 0,
+      "a": 2000,
+      "expected": 0.24992042253508551,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "a_one_large_h",
+      "h": 5,
+      "a": 1,
+      "expected": 1.4332574485503499e-07,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "a_one_small_h",
+      "h": 0.125,
+      "a": 1,
+      "expected": 0.12376305449537457,
+      "tolerance": 4.9999999999999999e-13
+    }
+  ]
+}

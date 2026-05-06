@@ -1,0 +1,363 @@
+{
+  "meta": {
+    "module": "math",
+    "source": "Boost.Math Airy functions via tmp/BoostAiryProbe.cpp",
+    "boostVersion": "1.90.0",
+    "compiler": "17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-22T10:31:08Z"
+  },
+  "cases": [
+    {
+      "name": "ai_zero",
+      "function": "ai",
+      "rank": 0,
+      "x": 0,
+      "expected": 0.35502805388781744,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "bi_zero",
+      "function": "bi",
+      "rank": 0,
+      "x": 0,
+      "expected": 0.61492662744600102,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "aip_zero",
+      "function": "aiPrime",
+      "rank": 0,
+      "x": 0,
+      "expected": -0.25881940379280677,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "bip_zero",
+      "function": "biPrime",
+      "rank": 0,
+      "x": 0,
+      "expected": 0.44828835735382633,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "ai_pos_2",
+      "function": "ai",
+      "rank": 0,
+      "x": 2,
+      "expected": 0.034924130423274267,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "bi_pos_2",
+      "function": "bi",
+      "rank": 0,
+      "x": 2,
+      "expected": 3.2980949999782134,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "aip_pos_2",
+      "function": "aiPrime",
+      "rank": 0,
+      "x": 2,
+      "expected": -0.053090384433653673,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "bip_pos_2",
+      "function": "biPrime",
+      "rank": 0,
+      "x": 2,
+      "expected": 4.1006820499328915,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ai_pos_3_5",
+      "function": "ai",
+      "rank": 0,
+      "x": 3.5,
+      "expected": 0.0025840987869896357,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "bi_pos_3_5",
+      "function": "bi",
+      "rank": 0,
+      "x": 3.5,
+      "expected": 33.055506754611478,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "aip_pos_3_5",
+      "function": "aiPrime",
+      "rank": 0,
+      "x": 3.5,
+      "expected": -0.0050044139679525854,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "bip_pos_3_5",
+      "function": "biPrime",
+      "rank": 0,
+      "x": 3.5,
+      "expected": 59.164319581360964,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ai_pos_30_5",
+      "function": "ai",
+      "rank": 0,
+      "x": 30.5,
+      "expected": 2.0425346166692481e-50,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "bi_pos_30_5",
+      "function": "bi",
+      "rank": 0,
+      "x": 30.5,
+      "expected": 1.4109225620171357e+48,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "aip_pos_30_5",
+      "function": "aiPrime",
+      "rank": 0,
+      "x": 30.5,
+      "expected": -1.1296946627199571e-49,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "bip_pos_30_5",
+      "function": "biPrime",
+      "rank": 0,
+      "x": 30.5,
+      "expected": 7.7804662944095499e+48,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "ai_neg_2",
+      "function": "ai",
+      "rank": 0,
+      "x": -2,
+      "expected": 0.22740742820168544,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "bi_neg_2",
+      "function": "bi",
+      "rank": 0,
+      "x": -2,
+      "expected": -0.41230258795639863,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "aip_neg_2",
+      "function": "aiPrime",
+      "rank": 0,
+      "x": -2,
+      "expected": 0.61825902074169081,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "bip_neg_2",
+      "function": "biPrime",
+      "rank": 0,
+      "x": -2,
+      "expected": 0.27879516692116912,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ai_neg_3_5",
+      "function": "ai",
+      "rank": 0,
+      "x": -3.5,
+      "expected": -0.37553382314043215,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "bi_neg_3_5",
+      "function": "bi",
+      "rank": 0,
+      "x": -3.5,
+      "expected": 0.1689398374810592,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "aip_neg_3_5",
+      "function": "aiPrime",
+      "rank": 0,
+      "x": -3.5,
+      "expected": -0.34344343345404793,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "bip_neg_3_5",
+      "function": "biPrime",
+      "rank": 0,
+      "x": -3.5,
+      "expected": -0.69311628490728916,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ai_neg_30_25",
+      "function": "ai",
+      "rank": 0,
+      "x": -30.25,
+      "expected": -0.23690042849155946,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "bi_neg_30_25",
+      "function": "bi",
+      "rank": 0,
+      "x": -30.25,
+      "expected": 0.041861498983915876,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "aip_neg_30_25",
+      "function": "aiPrime",
+      "rank": 0,
+      "x": -30.25,
+      "expected": -0.23219733237269566,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "bip_neg_30_25",
+      "function": "biPrime",
+      "rank": 0,
+      "x": -30.25,
+      "expected": -1.3026137595255465,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "ai_neg_300_5",
+      "function": "ai",
+      "rank": 0,
+      "x": -300.5,
+      "expected": -0.11758430476170241,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "bi_neg_300_5",
+      "function": "bi",
+      "rank": 0,
+      "x": -300.5,
+      "expected": 0.067351803544091177,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "aip_neg_300_5",
+      "function": "aiPrime",
+      "rank": 0,
+      "x": -300.5,
+      "expected": -1.1676370226247266,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "bip_neg_300_5",
+      "function": "biPrime",
+      "rank": 0,
+      "x": -300.5,
+      "expected": -2.038260355503017,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "ai_zero_1",
+      "function": "aiZero",
+      "rank": 1,
+      "x": 0,
+      "expected": -2.338107410459767,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ai_zero_2",
+      "function": "aiZero",
+      "rank": 2,
+      "x": 0,
+      "expected": -4.0879494441309703,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ai_zero_3",
+      "function": "aiZero",
+      "rank": 3,
+      "x": 0,
+      "expected": -5.5205598280955508,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ai_zero_10",
+      "function": "aiZero",
+      "rank": 10,
+      "x": 0,
+      "expected": -12.828776752865759,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "ai_zero_1000",
+      "function": "aiZero",
+      "rank": 1000,
+      "x": 0,
+      "expected": -281.03151961252155,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "ai_zero_1000000",
+      "function": "aiZero",
+      "rank": 1000000,
+      "x": 0,
+      "expected": -28107.831979379582,
+      "tolerance": 5.0000000000000003e-10
+    },
+    {
+      "name": "bi_zero_1",
+      "function": "biZero",
+      "rank": 1,
+      "x": 0,
+      "expected": -1.1737132227091278,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "bi_zero_2",
+      "function": "biZero",
+      "rank": 2,
+      "x": 0,
+      "expected": -3.2710933028363525,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "bi_zero_3",
+      "function": "biZero",
+      "rank": 3,
+      "x": 0,
+      "expected": -4.8307378416620166,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "bi_zero_10",
+      "function": "biZero",
+      "rank": 10,
+      "x": 0,
+      "expected": -12.38641713858274,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "bi_zero_1000",
+      "function": "biZero",
+      "rank": 1000,
+      "x": 0,
+      "expected": -280.93781120341527,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "bi_zero_1000000",
+      "function": "biZero",
+      "rank": 1000000,
+      "x": 0,
+      "expected": -28107.822610099134,
+      "tolerance": 5.0000000000000003e-10
+    }
+  ]
+}

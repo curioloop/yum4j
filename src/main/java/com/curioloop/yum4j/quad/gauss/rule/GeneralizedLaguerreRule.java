@@ -3,6 +3,7 @@
  */
 package com.curioloop.yum4j.quad.gauss.rule;
 
+import com.curioloop.yum4j.math.Gamma;
 import com.curioloop.yum4j.quad.gauss.GaussRule;
 
 /**
@@ -39,7 +40,7 @@ public record GeneralizedLaguerreRule(double s) implements GaussRule {
      */
     @Override
     public double zeroMoment() {
-        return Math.exp(GaussRule.logGamma(s + 1.0));
+        return Math.exp(Gamma.lgamma(s + 1.0));
     }
 
     /**

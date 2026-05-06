@@ -1,0 +1,62 @@
+{
+  "meta": {
+    "module": "math.statistics",
+    "source": "Boost.Math cauchy_distribution via tmp/BoostCauchyDistributionProbe.cpp",
+    "boostVersion": "1.90.0",
+    "compiler": "Apple LLVM 17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-27T14:15:44Z"
+  },
+  "cases": [
+    {
+      "name": "shifted_left",
+      "location": 1.5,
+      "scale": 2,
+      "x": 0.75,
+      "pdf": 0.13953310079289455,
+      "cdf": 0.38579974878009188,
+      "ccdf": 0.61420025121990818,
+      "quantileProbability": 0.29999999999999999,
+      "quantile": 0.046914943989277758,
+      "upperTailProbability": 0.20000000000000001,
+      "upperTailQuantile": 4.2527638409423467,
+      "median": 1.5,
+      "mode": 1.5,
+      "tolerance": 4.9999999999999999e-13,
+      "quantileTolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "centered_origin",
+      "location": 0,
+      "scale": 1,
+      "x": 0,
+      "pdf": 0.31830988618379069,
+      "cdf": 0.5,
+      "ccdf": 0.5,
+      "quantileProbability": 0.5,
+      "quantile": 0,
+      "upperTailProbability": 0.5,
+      "upperTailQuantile": 0,
+      "median": 0,
+      "mode": 0,
+      "tolerance": 4.9999999999999999e-13,
+      "quantileTolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "narrow_tail",
+      "location": -2,
+      "scale": 0.5,
+      "x": -4,
+      "pdf": 0.037448221903975371,
+      "cdf": 0.077979130377369324,
+      "ccdf": 0.92202086962263063,
+      "quantileProbability": 0.90000000000000002,
+      "quantile": -0.46115823141237278,
+      "upperTailProbability": 0.10000000000000001,
+      "upperTailQuantile": -0.461158231412373,
+      "median": -2,
+      "mode": -2,
+      "tolerance": 4.9999999999999999e-13,
+      "quantileTolerance": 9.9999999999999998e-13
+    }
+  ]
+}

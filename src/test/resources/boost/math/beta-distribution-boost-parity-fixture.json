@@ -1,0 +1,83 @@
+{
+  "meta": {
+    "module": "math.statistics",
+    "source": "Boost.Math beta_distribution via tmp/BoostBetaDistributionProbe.cpp",
+    "boostVersion": "1.88.0",
+    "compiler": "Apple clang version 17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-18T04:33:00Z"
+  },
+  "cases": [
+    {
+      "name": "asymmetric_core",
+      "alpha": 2.5,
+      "beta": 3.5,
+      "x": 0.40000000000000002,
+      "pdf": 1.9161828587118828,
+      "cdf": 0.4869041915261173,
+      "ccdf": 0.51309580847388281,
+      "median": 0.40684494089319384,
+      "mean": 0.41666666666666669,
+      "variance": 0.034722222222222224,
+      "skewness": 0.22360679774997896,
+      "kurtosis": 2.3999999999999999,
+      "kurtosisExcess": -0.59999999999999998,
+      "mode": 0.375,
+      "tolerance": 4.9999999999999999e-13,
+      "quantileTolerance": 9.9999999999999994e-12
+    },
+    {
+      "name": "left_skewed",
+      "alpha": 1.25,
+      "beta": 4.5,
+      "x": 0.20000000000000001,
+      "pdf": 2.2884835534834349,
+      "cdf": 0.53840809478967766,
+      "ccdf": 0.46159190521032234,
+      "median": 0.18363349874098381,
+      "mean": 0.21739130434782608,
+      "variance": 0.025204788909892879,
+      "skewness": 0.91876041904092387,
+      "kurtosis": 3.4357603686635945,
+      "kurtosisExcess": 0.43576036866359447,
+      "mode": 0.066666666666666666,
+      "tolerance": 4.9999999999999999e-13,
+      "quantileTolerance": 9.9999999999999994e-12
+    },
+    {
+      "name": "near_symmetric",
+      "alpha": 3,
+      "beta": 3,
+      "x": 0.69999999999999996,
+      "pdf": 1.3230000000000011,
+      "cdf": 0.83691999999999989,
+      "ccdf": 0.16308000000000006,
+      "median": 0.5,
+      "mean": 0.5,
+      "variance": 0.035714285714285712,
+      "skewness": 0,
+      "kurtosis": 2.3333333333333335,
+      "kurtosisExcess": -0.66666666666666663,
+      "mode": 0.5,
+      "tolerance": 4.9999999999999999e-13,
+      "quantileTolerance": 9.9999999999999994e-12
+    },
+    {
+      "name": "large_shape",
+      "alpha": 12.5,
+      "beta": 7.25,
+      "x": 0.42999999999999999,
+      "pdf": 0.66593066603478179,
+      "cdf": 0.033620050637829822,
+      "ccdf": 0.9663799493621702,
+      "median": 0.63748238051528339,
+      "mean": 0.63291139240506333,
+      "variance": 0.011196846350310713,
+      "skewness": -0.23100164815393404,
+      "kurtosis": 2.8127880205406961,
+      "kurtosisExcess": -0.18721197945930407,
+      "mode": 0.647887323943662,
+      "tolerance": 4.9999999999999997e-12,
+      "quantileTolerance": 5.0000000000000002e-11
+    }
+  ]
+}

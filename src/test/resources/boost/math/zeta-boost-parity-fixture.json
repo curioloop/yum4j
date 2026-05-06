@@ -1,0 +1,130 @@
+{
+  "meta": {
+    "module": "math",
+    "source": "Boost.Math zeta via tmp/BoostZetaProbe.cpp",
+    "boostVersion": "1.90.0",
+    "compiler": "17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-22T12:51:35Z"
+  },
+  "cases": [
+    {
+      "name": "zeta_near_zero",
+      "branch": "near_zero",
+      "s": 9.9999999999999998e-13,
+      "expected": -0.50000000000091893,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "zeta_half",
+      "branch": "critical_strip",
+      "s": 0.5,
+      "expected": -1.4603545088095866,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "zeta_near_pole_left",
+      "branch": "left_of_pole",
+      "s": 0.9990234375,
+      "expected": -1023.422855448943,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "zeta_near_pole_right",
+      "branch": "right_of_pole",
+      "s": 1.0009765625,
+      "expected": 1024.5772867695046,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "zeta_one_point_two_five",
+      "branch": "one_to_two",
+      "s": 1.25,
+      "expected": 4.5951118258429435,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "zeta_two",
+      "branch": "positive_integer",
+      "s": 2,
+      "expected": 1.6449340668482262,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "zeta_three_point_five",
+      "branch": "two_to_four",
+      "s": 3.5,
+      "expected": 1.1267338673170566,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "zeta_six",
+      "branch": "four_to_seven",
+      "s": 6,
+      "expected": 1.017343061984449,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "zeta_ten",
+      "branch": "seven_to_fifteen",
+      "s": 10,
+      "expected": 1.0009945751278178,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "zeta_twenty",
+      "branch": "fifteen_to_thirty_six",
+      "s": 20,
+      "expected": 1.0000009539620331,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "zeta_forty",
+      "branch": "large_positive",
+      "s": 40,
+      "expected": 1.0000000000009079,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "zeta_negative_half",
+      "branch": "negative_reflection",
+      "s": -0.5,
+      "expected": -0.20788622497735448,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "zeta_negative_one",
+      "branch": "negative_integer",
+      "s": -1,
+      "expected": -0.083333333333333329,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "zeta_negative_two",
+      "branch": "trivial_zero",
+      "s": -2,
+      "expected": 0,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "zeta_negative_three",
+      "branch": "negative_integer",
+      "s": -3,
+      "expected": 0.0083333333333333332,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "zeta_negative_four_point_five",
+      "branch": "negative_reflection",
+      "s": -4.5,
+      "expected": -0.0030916692472158346,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "zeta_negative_twenty_point_five",
+      "branch": "negative_large",
+      "s": -20.5,
+      "expected": -108.21747505877615,
+      "tolerance": 5.0000000000000002e-11
+    }
+  ]
+}

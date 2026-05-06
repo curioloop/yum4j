@@ -1,0 +1,99 @@
+{
+  "meta": {
+    "module": "math",
+    "source": "Boost.Math polygamma special functions via tmp/BoostGammaPolygammaProbe.cpp",
+    "boostVersion": "1.90.0",
+    "compiler": "17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-20T14:48:54Z"
+  },
+  "cases": [
+    {
+      "name": "digamma_low_x_recurrence",
+      "branch": "digamma recurrence",
+      "order": 0,
+      "x": 0.125,
+      "expected": -8.388492663295855,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "digamma_large_x_lanczos",
+      "branch": "digamma large-x lanczos",
+      "order": 0,
+      "x": 42,
+      "expected": 3.7257176179372822,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "digamma_negative_reflection",
+      "branch": "digamma negative reflection",
+      "order": 0,
+      "x": -0.125,
+      "expected": 7.1959829284523051,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "trigamma_low_x_recurrence",
+      "branch": "trigamma recurrence",
+      "order": 1,
+      "x": 0.125,
+      "expected": 65.388133444988028,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "trigamma_large_x_lanczos",
+      "branch": "trigamma large-x lanczos",
+      "order": 1,
+      "x": 42,
+      "expected": 0.024095219843670562,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "trigamma_negative_reflection",
+      "branch": "trigamma negative reflection",
+      "order": 1,
+      "x": -0.125,
+      "expected": 66.005740957924914,
+      "tolerance": 5e-15
+    },
+    {
+      "name": "tetragamma_shifted_recurrence",
+      "branch": "order-2 shifted recurrence",
+      "order": 2,
+      "x": 0.75,
+      "expected": -5.3026332163376395,
+      "tolerance": 5.0000000000000002e-14
+    },
+    {
+      "name": "tetragamma_negative_reflection",
+      "branch": "order-2 negative reflection",
+      "order": 2,
+      "x": -0.25,
+      "expected": 122.69736678366239,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "polygamma_order5_moderate",
+      "branch": "order-5 moderate x",
+      "order": 5,
+      "x": 2.5,
+      "expected": 0.57856917856718337,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "polygamma_order5_negative_half_integer",
+      "branch": "order-5 negative half-integer",
+      "order": 5,
+      "x": -2.5,
+      "expected": 15382.140048026302,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "polygamma_order8_asymptotic",
+      "branch": "order-8 asymptotic",
+      "order": 8,
+      "x": 12,
+      "expected": -1.6110901962769792e-05,
+      "tolerance": 4.9999999999999999e-13
+    }
+  ]
+}

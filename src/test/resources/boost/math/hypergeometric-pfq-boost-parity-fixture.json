@@ -1,0 +1,227 @@
+{
+  "meta": {
+    "module": "math",
+    "source": "Boost.Math generalized hypergeometric pFq via tmp/BoostHypergeometricPFqProbe.cpp",
+    "boostVersion": "local-source-tree",
+    "compiler": "17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-24T11:02:01Z"
+  },
+  "cases": [
+    {
+      "name": "pfq_zero_f_zero",
+      "upper": [],
+      "lower": [],
+      "z": 0.75,
+      "expected": 2.1170000166126748,
+      "expectedAbsError": 4.7006843231504609e-16,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "pfq_one_f_zero_negative_exterior",
+      "upper": [0.75],
+      "lower": [],
+      "z": -2,
+      "expected": 0.43869133765083068,
+      "expectedAbsError": 2.2204460492503131e-16,
+      "tolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "pfq_one_f_zero_integral_positive_exterior",
+      "upper": [3],
+      "lower": [],
+      "z": 1.5,
+      "expected": -7.9999999999999964,
+      "expectedAbsError": -1.7763568394002497e-15,
+      "tolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "pfq_one_f_one_shape",
+      "upper": [0.75],
+      "lower": [1.5],
+      "z": 0.5,
+      "expected": 1.3001315540596259,
+      "expectedAbsError": 2.8868719727173661e-16,
+      "tolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "pfq_one_f_one_shape_negative",
+      "upper": [1.25],
+      "lower": [2.5],
+      "z": -3,
+      "expected": 0.30256343585620599,
+      "expectedAbsError": 1.349398162652526e-15,
+      "tolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "pfq_one_f_one_equal_negative_integer",
+      "upper": [-30],
+      "lower": [-30],
+      "z": 0.5,
+      "expected": 1.6487212707001278,
+      "expectedAbsError": 3.6608966318410546e-16,
+      "tolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "pfq_one_f_one_negative_lower_crossover",
+      "upper": [0.01],
+      "lower": [-80.5],
+      "z": 30,
+      "expected": -12015602740.428711,
+      "expectedAbsError": 0.001097409070560455,
+      "tolerance": 1e-10
+    },
+    {
+      "name": "pfq_two_f_one_shape_core",
+      "upper": [0.5, 1.25],
+      "lower": [1.75],
+      "z": 0.29999999999999999,
+      "expected": 1.1324769673616009,
+      "expectedAbsError": 2.5146040080450424e-16,
+      "tolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "pfq_two_f_one_shape_negative",
+      "upper": [0.75, 1.1000000000000001],
+      "lower": [2.25],
+      "z": -0.75,
+      "expected": 0.80355819255491423,
+      "expectedAbsError": 3.4025993812827741e-16,
+      "tolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "pfq_two_f_one_shape_unity",
+      "upper": [0.5, 0.75],
+      "lower": [2],
+      "z": 1,
+      "expected": 1.5255001145864491,
+      "expectedAbsError": 3.3872907025643807e-16,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "pfq_one_f_two",
+      "upper": [0.75],
+      "lower": [1.25, 2.5],
+      "z": 0.80000000000000004,
+      "expected": 1.2099505104728792,
+      "expectedAbsError": 2.6866298307679041e-16,
+      "tolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "pfq_two_f_two",
+      "upper": [0.75, 1.25],
+      "lower": [2, 2.5],
+      "z": -2,
+      "expected": 0.72976540924514988,
+      "expectedAbsError": 3.508523990011873e-16,
+      "tolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "pfq_two_f_two_negative_lower_crossover",
+      "upper": [0.75, 1.25],
+      "lower": [-2.5, 2.5],
+      "z": 2,
+      "expected": -5.104205209027346,
+      "expectedAbsError": 1.6773705111610904e-15,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "pfq_three_f_two_core",
+      "upper": [0.5, 0.75, 1.25],
+      "lower": [2, 2.5],
+      "z": 0.40000000000000002,
+      "expected": 1.0426024670527501,
+      "expectedAbsError": 2.3150425289059086e-16,
+      "tolerance": 2e-12
+    },
+    {
+      "name": "pfq_three_f_two_disk_edge",
+      "upper": [0.5, 0.75, 1.25],
+      "lower": [2, 2.5],
+      "z": 0.94999999999999996,
+      "expected": 1.1339871075659018,
+      "expectedAbsError": 2.5179571928954965e-16,
+      "tolerance": 2e-12
+    },
+    {
+      "name": "pfq_three_f_two_unity",
+      "upper": [0.5, 0.75, 1.25],
+      "lower": [2, 2.5],
+      "z": 1,
+      "expected": 1.1477652288045934,
+      "expectedAbsError": 2.5485507677660411e-16,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "pfq_three_f_two_negative_unity",
+      "upper": [0.5, 0.75, 1.25],
+      "lower": [2, 2.5],
+      "z": -1,
+      "expected": 0.92526334310050773,
+      "expectedAbsError": 2.5485507677711223e-16,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "pfq_three_f_two_negative",
+      "upper": [0.5, 1.1000000000000001, 1.75],
+      "lower": [2.25, 2.75],
+      "z": -0.69999999999999996,
+      "expected": 0.91161843177486368,
+      "expectedAbsError": 2.5574464085610892e-16,
+      "tolerance": 2e-12
+    },
+    {
+      "name": "pfq_four_f_three_core",
+      "upper": [0.5, 0.75, 1.25, 1.5],
+      "lower": [2, 2.5, 3.5],
+      "z": 0.40000000000000002,
+      "expected": 1.0171996649778494,
+      "expectedAbsError": 2.2586369773988078e-16,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "pfq_four_f_three_disk_edge",
+      "upper": [0.5, 0.75, 1.25, 1.5],
+      "lower": [2, 2.5, 3.5],
+      "z": 0.97999999999999998,
+      "expected": 1.0479569558298227,
+      "expectedAbsError": 2.3269318823567147e-16,
+      "tolerance": 9.9999999999999994e-12
+    },
+    {
+      "name": "pfq_four_f_four_positive",
+      "upper": [0.5, 0.75, 1.25, 1.5],
+      "lower": [2, 2.5, 3.5, 4.5],
+      "z": 2,
+      "expected": 1.0189625011286039,
+      "expectedAbsError": 2.2625512599652261e-16,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "pfq_four_f_four_negative",
+      "upper": [0.5, 1.1000000000000001, 1.75, 2.25],
+      "lower": [2.25, 2.75, 3.25, 4.25],
+      "z": -3,
+      "expected": 0.93394668151545224,
+      "expectedAbsError": 2.4215318450725092e-16,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "pfq_terminated_core",
+      "upper": [-2, 1.5, 0.75],
+      "lower": [2.25, 1.25],
+      "z": 0.80000000000000004,
+      "expected": 0.51316239316239309,
+      "expectedAbsError": 3.9816203515616732e-16,
+      "tolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "pfq_negative_lower_terminated",
+      "upper": [-2, 0.75, 1.25],
+      "lower": [-3, 2],
+      "z": 0.5,
+      "expected": 1.181884765625,
+      "expectedAbsError": 2.6243113585011635e-16,
+      "tolerance": 9.9999999999999998e-13
+    }
+  ]
+}

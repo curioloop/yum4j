@@ -1,0 +1,83 @@
+{
+  "meta": {
+    "module": "math",
+    "source": "Boost.Math elliptic integrals via tmp/BoostEllipticIntegralsProbe.cpp",
+    "boostVersion": "1.88.0",
+    "compiler": "17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-18T05:44:18Z"
+  },
+  "cases": [
+    {
+      "name": "complete_first_core",
+      "function": "completeFirstKind",
+      "k": 0.5,
+      "nu": null,
+      "phi": null,
+      "expected": 1.6857503548125961,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "incomplete_first_core",
+      "function": "incompleteFirstKind",
+      "k": 0.5,
+      "nu": null,
+      "phi": 1,
+      "expected": 1.0373561200021775,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "incomplete_first_periodic",
+      "function": "incompleteFirstKind",
+      "k": 0.69999999999999996,
+      "nu": null,
+      "phi": 2.2999999999999998,
+      "expected": 2.8010247609742764,
+      "tolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "complete_second_core",
+      "function": "completeSecondKind",
+      "k": 0.5,
+      "nu": null,
+      "phi": null,
+      "expected": 1.4674622093394272,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "incomplete_second_periodic",
+      "function": "incompleteSecondKind",
+      "k": 0.69999999999999996,
+      "nu": null,
+      "phi": 2.2999999999999998,
+      "expected": 1.9139778672132408,
+      "tolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "complete_third_core",
+      "function": "completeThirdKind",
+      "k": 0.5,
+      "nu": 0.20000000000000001,
+      "phi": null,
+      "expected": 1.8922947612264021,
+      "tolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "incomplete_third_core",
+      "function": "incompleteThirdKind",
+      "k": 0.5,
+      "nu": 0.20000000000000001,
+      "phi": 1,
+      "expected": 1.1013048164778227,
+      "tolerance": 9.9999999999999998e-13
+    },
+    {
+      "name": "incomplete_third_periodic",
+      "function": "incompleteThirdKind",
+      "k": 0.59999999999999998,
+      "nu": -0.34999999999999998,
+      "phi": 2.2000000000000002,
+      "expected": 2.0769909468595378,
+      "tolerance": 2e-12
+    }
+  ]
+}

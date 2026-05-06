@@ -1,0 +1,137 @@
+{
+  "meta": {
+    "module": "math",
+    "source": "Boost.Math cylindrical Bessel zeros via tmp/BoostBesselZeroProbe.cpp",
+    "boostVersion": "1.90.0",
+    "compiler": "17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-24T11:02:01Z"
+  },
+  "cases": [
+    {
+      "name": "j_zero_origin_integer_order",
+      "branch": "rank-zero integer-order special case",
+      "family": "j",
+      "nu": 1,
+      "rank": 0,
+      "expectedZero": 0,
+      "tolerance": 0
+    },
+    {
+      "name": "j_zero_half_integer_first",
+      "branch": "half-integer closed form",
+      "family": "j",
+      "nu": 0.5,
+      "rank": 1,
+      "expectedZero": 3.1415926535897936,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "j_zero_noninteger_second",
+      "branch": "noninteger root solve",
+      "family": "j",
+      "nu": 0.75,
+      "rank": 2,
+      "expectedZero": 6.6526355231218286,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "j_zero_negative_order_first",
+      "branch": "negative-order reflection",
+      "family": "j",
+      "nu": -0.75,
+      "rank": 1,
+      "expectedZero": 1.0585082594041195,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "j_zero_large_order_first",
+      "branch": "airy initial guess",
+      "family": "j",
+      "nu": 20,
+      "rank": 1,
+      "expectedZero": 25.417140814072525,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "j_zero_large_order_later_rank",
+      "branch": "airy later rank bracket",
+      "family": "j",
+      "nu": 50,
+      "rank": 8,
+      "expectedZero": 88.315711749199579,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "j_zero_large_noninteger_rank",
+      "branch": "large noninteger airy bracket",
+      "family": "j",
+      "nu": 128.75,
+      "rank": 5,
+      "expectedZero": 162.94164717588441,
+      "tolerance": 5.0000000000000003e-10
+    },
+    {
+      "name": "y_zero_negative_half_integer_origin",
+      "branch": "rank-zero spherical crossover",
+      "family": "y",
+      "nu": -0.5,
+      "rank": 0,
+      "expectedZero": 0,
+      "tolerance": 0
+    },
+    {
+      "name": "y_zero_half_integer_first",
+      "branch": "half-integer closed form",
+      "family": "y",
+      "nu": 0.5,
+      "rank": 1,
+      "expectedZero": 1.570796326794897,
+      "tolerance": 4.9999999999999999e-13
+    },
+    {
+      "name": "y_zero_noninteger_second",
+      "branch": "noninteger root solve",
+      "family": "y",
+      "nu": 0.75,
+      "rank": 2,
+      "expectedZero": 5.0748171565816813,
+      "tolerance": 4.9999999999999997e-12
+    },
+    {
+      "name": "y_zero_negative_order_first",
+      "branch": "negative-order reflection",
+      "family": "y",
+      "nu": -0.75,
+      "rank": 1,
+      "expectedZero": 2.6938504353129691,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "y_zero_large_order_first",
+      "branch": "airy initial guess",
+      "family": "y",
+      "nu": 20,
+      "rank": 1,
+      "expectedZero": 22.625159280072317,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "y_zero_large_order_later_rank",
+      "branch": "airy later rank bracket",
+      "family": "y",
+      "nu": 50,
+      "rank": 8,
+      "expectedZero": 86.400289204160032,
+      "tolerance": 5.0000000000000002e-11
+    },
+    {
+      "name": "y_zero_large_noninteger_rank",
+      "branch": "large noninteger airy bracket",
+      "family": "y",
+      "nu": 128.75,
+      "rank": 5,
+      "expectedZero": 160.3443554174759,
+      "tolerance": 5.0000000000000003e-10
+    }
+  ]
+}

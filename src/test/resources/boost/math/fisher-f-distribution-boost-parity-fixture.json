@@ -1,0 +1,83 @@
+{
+  "meta": {
+    "module": "math.statistics",
+    "source": "Boost.Math fisher_f_distribution via tmp/BoostFisherFDistributionProbe.cpp",
+    "boostVersion": "1.88.0",
+    "compiler": "Apple clang version 17.0.0 (clang-1700.0.13.5)",
+    "generatedAt": "2026-04-18T04:33:00Z"
+  },
+  "cases": [
+    {
+      "name": "balanced_core",
+      "degreesOfFreedom1": 8,
+      "degreesOfFreedom2": 10,
+      "x": 1.5,
+      "pdf": 0.32061779948959851,
+      "cdf": 0.73086897668587858,
+      "ccdf": 0.26913102331412142,
+      "median": 0.9827616695704372,
+      "mean": 1.25,
+      "variance": 1.0416666666666667,
+      "skewness": 3.6742346141747668,
+      "kurtosis": 49.5,
+      "kurtosisExcess": 46.5,
+      "mode": 0.625,
+      "tolerance": 4.9999999999999999e-13,
+      "quantileTolerance": 1e-10
+    },
+    {
+      "name": "small_df1",
+      "degreesOfFreedom1": 3.5,
+      "degreesOfFreedom2": 12,
+      "x": 0.75,
+      "pdf": 0.55833578472225442,
+      "cdf": 0.43871731679721809,
+      "ccdf": 0.56128268320278185,
+      "median": 0.86546495699332415,
+      "mean": 1.2,
+      "variance": 1.3885714285714286,
+      "skewness": 3.2975147857883296,
+      "kurtosis": 30.465608465608465,
+      "kurtosisExcess": 27.465608465608465,
+      "mode": 0.36734693877551022,
+      "tolerance": 4.9999999999999999e-13,
+      "quantileTolerance": 1e-10
+    },
+    {
+      "name": "large_df",
+      "degreesOfFreedom1": 12,
+      "degreesOfFreedom2": 20,
+      "x": 1.2,
+      "pdf": 0.59417436979463634,
+      "cdf": 0.65294016042413683,
+      "ccdf": 0.34705983957586317,
+      "median": 0.97745285814935812,
+      "mean": 1.1111111111111112,
+      "variance": 0.38580246913580246,
+      "skewness": 1.7888543819998317,
+      "kurtosis": 9.5999999999999996,
+      "kurtosisExcess": 6.5999999999999996,
+      "mode": 0.75757575757575757,
+      "tolerance": 4.9999999999999999e-13,
+      "quantileTolerance": 1e-10
+    },
+    {
+      "name": "right_tail",
+      "degreesOfFreedom1": 5,
+      "degreesOfFreedom2": 30,
+      "x": 2,
+      "pdf": 0.15429277772740158,
+      "cdf": 0.89266468189504122,
+      "ccdf": 0.1073353181049588,
+      "median": 0.89019258816922731,
+      "mean": 1.0714285714285714,
+      "variance": 0.58281004709576134,
+      "skewness": 1.7777146453436672,
+      "kurtosis": 8.7168044077134983,
+      "kurtosisExcess": 5.7168044077134983,
+      "mode": 0.5625,
+      "tolerance": 4.9999999999999999e-13,
+      "quantileTolerance": 1e-10
+    }
+  ]
+}
