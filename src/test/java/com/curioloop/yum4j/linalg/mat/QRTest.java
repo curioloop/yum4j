@@ -76,6 +76,25 @@ class QRTest {
     }
 
     @Test
+    void testLeastSquaresCanUseBAsDestination() {
+        double[] A = {
+            1.0, 1.0,
+            1.0, 2.0,
+            1.0, 3.0
+        };
+        double[] b = {2.0, 3.0, 5.0};
+        int m = 3, n = 2;
+
+        QR qr = QR.decompose(A, m, n);
+        assertThat(qr.ok()).isTrue();
+
+        double[] x = qr.leastSquares(b, b);
+        assertThat(x).isSameAs(b);
+        assertThat(x[0]).isCloseTo(1.0/3.0, org.assertj.core.data.Offset.offset(1e-10));
+        assertThat(x[1]).isCloseTo(1.5, org.assertj.core.data.Offset.offset(1e-10));
+    }
+
+    @Test
     void testSolveSquareSystem() {
         double[] A = {
             2.0, 1.0,
@@ -378,7 +397,7 @@ class QRTest {
         assertThat(qr.ok()).isTrue();
 
         assertThat(qr.leastSquares(b, x)).isNotNull();
-        assertThat(b).containsExactly(bCopy);
+        assertThat(b[0]).isNotCloseTo(bCopy[0], org.assertj.core.data.Offset.offset(1e-12));
 
         assertThat(x[0]).isCloseTo(1.0/3.0, org.assertj.core.data.Offset.offset(1e-10));
         assertThat(x[1]).isCloseTo(1.5, org.assertj.core.data.Offset.offset(1e-10));

@@ -235,19 +235,19 @@ public final class QR implements Decomposition {
         return x;
     }
 
-    /**
-     * Solves the least-squares problem {@code min ||A*x - b||_2} for a tall or square matrix.
-     *
-     * <p>The input right-hand side {@code b} is not modified. When pivoting is enabled, the
-     * returned solution follows the rank-revealing QR path {@code A*P = Q*R} and is unpermuted
-     * before being returned.</p>
-     *
-     * @param b right-hand side vector of length at least {@code m}
-     * @param x destination vector of length at least {@code n}; may be {@code null}
-     * @return the least-squares solution vector {@code x}
-     * @throws IllegalStateException if the decomposition is unavailable
-     * @throws ArithmeticException if the effective triangular factor is singular or ill-conditioned
-     */
+     /**
+      * Solves the least-squares problem {@code min ||A*x - b||_2} for a tall or square matrix.
+      *
+      * <p>To minimize allocations, this method uses {@code b} as the working buffer and overwrites
+      * it with {@code Q^T b}. When pivoting is enabled, the returned solution follows the
+      * rank-revealing QR path {@code A*P = Q*R} and is unpermuted before being returned.</p>
+      *
+      * @param b right-hand side vector of length at least {@code m}; overwritten as workspace
+      * @param x destination vector of length at least {@code n}; may be {@code null}
+      * @return the least-squares solution vector {@code x}
+      * @throws IllegalStateException if the decomposition is unavailable
+      * @throws ArithmeticException if the effective triangular factor is singular or ill-conditioned
+      */
     public double[] leastSquares(double[] b, double[] x) {
         requireDecomposition();
         if (b == null || b.length < m) {
@@ -256,20 +256,24 @@ public final class QR implements Decomposition {
         if (x == null || x.length < n) {
             x = new double[n];
         }
-        double[] rhs = new double[m];
-        System.arraycopy(b, 0, rhs, 0, m);
         int k = Math.min(m, n);
-        applyQt(rhs, k, pool.work(), 0);
+        applyQt(b, k, pool.work(), 0);
         if (pivoting) {
-            BLAS.dset(n, 0.0, x, 0, 1);
-            BLAS.dcopy(rank, rhs, 0, 1, x, 0, 1);
+            if (x == b) {
+                BLAS.dset(n - rank, 0.0, x, rank, 1);
+            } else {
+                BLAS.dset(n, 0.0, x, 0, 1);
+                BLAS.dcopy(rank, b, 0, 1, x, 0, 1);
+            }
             if (!backSubstituteRank(x, rank)) {
                 throw new ArithmeticException("QR factor is singular");
             }
             unpermute(x);
         } else {
             requireWellConditioned();
-            BLAS.dcopy(n, rhs, 0, 1, x, 0, 1);
+            if (x != b) {
+                BLAS.dcopy(n, b, 0, 1, x, 0, 1);
+            }
             if (!BLAS.dtrtrs(BLAS.Uplo.Upper, BLAS.Trans.NoTrans, BLAS.Diag.NonUnit,
                     n, 1, QR, 0, this.n, x, 0, 1)) {
                 throw new ArithmeticException("QR factor is singular");
