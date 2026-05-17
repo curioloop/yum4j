@@ -16,6 +16,7 @@
 package com.curioloop.yum4j.optim.slsqp;
 
 import com.curioloop.yum4j.linalg.blas.BLAS;
+import com.curioloop.yum4j.math.Double3;
 
 /**
  * Consolidated least-squares solver for SLSQP.
@@ -358,7 +359,6 @@ final class LSQSolver {
 
                 // Move coefficient i from P to Z
                 i = index[indexOff + jj];
-                double[] g1Result = new double[3];
                 for (;;) {
                     x[xOff + i] = 0.0;
                     if (++jj < np) {
@@ -366,10 +366,10 @@ final class LSQSolver {
                             ii = index[indexOff + j];
                             int ciOff = aOff + mda * ii;
                             index[indexOff + j - 1] = ii;
-                            Householder.g1(a[ciOff + j - 1], a[ciOff + j], g1Result);
-                            cc = g1Result[0];
-                            ss = g1Result[1];
-                            a[ciOff + j - 1] = g1Result[2];
+                            Double3 g1Result = Householder.g1(a[ciOff + j - 1], a[ciOff + j]);
+                            cc = g1Result._1();
+                            ss = g1Result._2();
+                            a[ciOff + j - 1] = g1Result._3();
                             a[ciOff + j] = 0.0;
                             for (l = 0; l < n; l++) {
                                 if (l != ii) {

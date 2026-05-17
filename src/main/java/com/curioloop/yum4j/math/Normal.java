@@ -96,6 +96,9 @@ public final class Normal {
     /** 1 / sqrt(2) */
     private static final double INV_SQRT2 = 0.70710678118654752440;
 
+    /** log(2·sqrt(π)) */
+    private static final double LOG_2_SQRT_PI = Math.log(2.0 * Math.sqrt(Math.PI));
+
     /** sqrt(2) */
     private static final double SQRT2 = 1.41421356237309504880;
     private static final double TWO_DIV_SQRT_PI = 1.128379167095512573896158903121545171688;
@@ -431,6 +434,49 @@ public final class Normal {
      */
     public static double ccdf(double x) {
         return 0.5 * erfc(x * INV_SQRT2);
+    }
+
+    /**
+     * Logarithm of the standard normal CDF.
+     *
+     * <pre>
+     * log Φ(x)
+     * </pre>
+     *
+     * <p>Numerically stable in the far left tail where {@link #cdf(double)}
+     * underflows to zero: prefers {@code log(cdf(x))} when that is finite
+     * (the Boost {@code erfc} implementation stays non-zero down to
+     * roughly {@code x ≈ -37}), and switches to an asymptotic expansion
+     * for deeper inputs.
+     *
+     * @param x evaluation point
+     * @return log Φ(x)
+     */
+    public static double logCdf(double x) {
+        double c = cdf(x);
+        if (c > 0.0) {
+            return Math.log(c);
+        }
+        // cdf(x) underflowed to zero. Use the asymptotic expansion of erfc
+        // for large positive argument t = -x/√2:
+        //   erfc(t) ≈ exp(-t²) / (t·√π) · [1 − 1/(2t²) + 3/(4t⁴) − ...]
+        // Pull the exp(-x²/2) factor into logspace; truncate the alternating
+        // asymptotic series when the next term stops shrinking in magnitude.
+        double t = -x * INV_SQRT2;
+        double t2 = t * t;
+        double leading = -0.5 * x * x - Math.log(t) - LOG_2_SQRT_PI;
+        double term = 1.0;
+        double sum = 1.0;
+        double prev = Double.POSITIVE_INFINITY;
+        for (int k = 1; k < 32; k++) {
+            term *= -(2 * k - 1) / (2.0 * t2);
+            double abs = Math.abs(term);
+            if (abs >= prev) break;
+            sum += term;
+            prev = abs;
+            if (abs < 1e-18) break;
+        }
+        return leading + Math.log(sum);
     }
 
     /**

@@ -7,6 +7,8 @@ import com.curioloop.yum4j.math.Gamma;
 import com.curioloop.yum4j.math.Normal;
 import com.curioloop.yum4j.math.RootIterators;
 
+import java.util.random.RandomGenerator;
+
 /**
  * Boost-style Student's t distribution object with unified PDF/CDF/quantile access.
  */
@@ -144,6 +146,81 @@ public value record StudentsTDistribution(double degreesOfFreedom) implements Co
         double vd2 = 0.5 * degreesOfFreedom;
         return vp1 * (Gamma.digamma(vp1) - Gamma.digamma(vd2))
             + Math.log(Math.sqrt(degreesOfFreedom) * Beta.beta(vd2, 0.5));
+    }
+
+    // ---- Batch overrides --------------------------------------
+
+    /**
+     * Direct-formula log-pdf for Student's t:
+     *
+     * <pre>
+     * logPdf(x) = lgamma((v+1)/2) - 0.5*log(v*pi) - lgamma(v/2)
+     *           - ((v+1)/2) * log(1 + x*x/v)
+     * </pre>
+     */
+    @Override
+    public double logPdf(double x) {
+        if (Double.isNaN(x)) {
+            throw new IllegalArgumentException("x must not be NaN");
+        }
+        double logConst = studentLogConst(degreesOfFreedom);
+        double halfDfP1 = 0.5 * (degreesOfFreedom + 1.0);
+        if (Double.isInfinite(x)) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        return logConst - halfDfP1 * Math.log1p(x * x / degreesOfFreedom);
+    }
+
+    @Override
+    public void batch(Metric metric, double[] x, int xOff, int xStride, int n,
+                            double[] out, int outOff) {
+        if (metric == Metric.LOG_PDF) {
+            if (n == 0) return;
+            double logConst = studentLogConst(degreesOfFreedom);
+            double halfDfP1 = 0.5 * (degreesOfFreedom + 1.0);
+            double invDf = 1.0 / degreesOfFreedom;
+            for (int i = 0; i < n; i++) {
+                double v = x[xOff + i * xStride];
+                if (Double.isInfinite(v)) {
+                    out[outOff + i] = Double.NEGATIVE_INFINITY;
+                } else {
+                    out[outOff + i] = logConst - halfDfP1 * Math.log1p(v * v * invDf);
+                }
+            }
+        } else {
+            ContinuousDistribution.super.batch(metric, x, xOff, xStride, n, out, outOff);
+        }
+    }
+
+    private static double studentLogConst(double df) {
+        return Gamma.lgamma(0.5 * (df + 1.0))
+            - 0.5 * Math.log(df * Math.PI)
+            - Gamma.lgamma(0.5 * df);
+    }
+
+    // ---- Sampling overrides ---------------------------------------
+
+    /**
+     * Sample via {@code Z / sqrt(ChiSq(df) / df)}, where
+     * {@code ChiSq(df) = Gamma(shape = df/2, scale = 2)}. The Gamma
+     * kernel is the shared Marsaglia-Tsang path
+     */
+    @Override
+    public double sample(RandomGenerator g) {
+        double z = g.nextGaussian();
+        double chi = Distribution.nextGamma(g, 0.5 * degreesOfFreedom) * 2.0;
+        return z / Math.sqrt(chi / degreesOfFreedom);
+    }
+
+    @Override
+    public void sample(RandomGenerator g, int n, double[] out, int off, int stride) {
+        if (n == 0) return;
+        double halfDf = 0.5 * degreesOfFreedom;
+        for (int i = 0; i < n; i++) {
+            double z = g.nextGaussian();
+            double chi = Distribution.nextGamma(g, halfDf) * 2.0;
+            out[off + i * stride] = z / Math.sqrt(chi / degreesOfFreedom);
+        }
     }
 
     public static double findDegreesOfFreedom(double differenceFromMean,

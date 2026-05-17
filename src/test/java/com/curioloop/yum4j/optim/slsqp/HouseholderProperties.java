@@ -7,6 +7,7 @@
  */
 package com.curioloop.yum4j.optim.slsqp;
 
+import com.curioloop.yum4j.math.Double3;
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.*;
 import org.junit.jupiter.api.Tag;
@@ -195,12 +196,11 @@ class HouseholderProperties {
             @ForAll @DoubleRange(min = -100, max = 100) double a,
             @ForAll @DoubleRange(min = -100, max = 100) double b
     ) {
-        double[] result = new double[3];
-        Householder.g1(a, b, result);
+        Double3 result = Householder.g1(a, b);
 
-        double c = result[0];
-        double s = result[1];
-        double sig = result[2];
+        double c = result._1();
+        double s = result._2();
+        double sig = result._3();
 
         // Property: G[a,b]^T = [r,0]^T where G = [[c,s],[-s,c]]
         // So: c*a + s*b = r and -s*a + c*b = 0
@@ -240,11 +240,10 @@ class HouseholderProperties {
             @ForAll @DoubleRange(min = -100, max = 100) double z2
     ) {
         // First compute Givens rotation from (a, b)
-        double[] result = new double[3];
-        Householder.g1(a, b, result);
+        Double3 result = Householder.g1(a, b);
 
-        double c = result[0];
-        double s = result[1];
+        double c = result._1();
+        double s = result._2();
 
         // Apply rotation to (z1, z2)
         double[] ab = {z1, z2};
@@ -276,12 +275,11 @@ class HouseholderProperties {
             @ForAll @DoubleRange(min = -100, max = 100) double b
     ) {
         // Compute Givens rotation
-        double[] result = new double[3];
-        Householder.g1(a, b, result);
+        Double3 result = Householder.g1(a, b);
 
-        double c = result[0];
-        double s = result[1];
-        double sig = result[2];
+        double c = result._1();
+        double s = result._2();
+        double sig = result._3();
 
         // Apply rotation to (a, b) itself
         double[] ab = {a, b};
@@ -397,28 +395,26 @@ class HouseholderProperties {
 
     @Property(tries = 100)
     void g1HandlesSpecialCasesCorrectly() {
-        double[] result = new double[3];
-
         // Test with both zero
-        Householder.g1(0.0, 0.0, result);
-        assertEquals(0.0, result[2], "sig should be 0 for (0,0)");
+        Double3 result = Householder.g1(0.0, 0.0);
+        assertEquals(0.0, result._3(), "sig should be 0 for (0,0)");
 
         // Test with a = 0
-        Householder.g1(0.0, 5.0, result);
-        assertEquals(5.0, result[2], EPSILON, "sig should be |b| when a = 0");
-        assertEquals(0.0, result[0], EPSILON, "c should be 0 when a = 0");
-        assertEquals(1.0, result[1], EPSILON, "s should be 1 when a = 0 and b > 0");
+        result = Householder.g1(0.0, 5.0);
+        assertEquals(5.0, result._3(), EPSILON, "sig should be |b| when a = 0");
+        assertEquals(0.0, result._1(), EPSILON, "c should be 0 when a = 0");
+        assertEquals(1.0, result._2(), EPSILON, "s should be 1 when a = 0 and b > 0");
 
         // Test with b = 0
-        Householder.g1(5.0, 0.0, result);
-        assertEquals(5.0, result[2], EPSILON, "sig should be |a| when b = 0");
-        assertEquals(1.0, result[0], EPSILON, "c should be 1 when b = 0 and a > 0");
-        assertEquals(0.0, result[1], EPSILON, "s should be 0 when b = 0");
+        result = Householder.g1(5.0, 0.0);
+        assertEquals(5.0, result._3(), EPSILON, "sig should be |a| when b = 0");
+        assertEquals(1.0, result._1(), EPSILON, "c should be 1 when b = 0 and a > 0");
+        assertEquals(0.0, result._2(), EPSILON, "s should be 0 when b = 0");
 
         // Test with negative a
-        Householder.g1(-5.0, 0.0, result);
-        assertEquals(5.0, result[2], EPSILON, "sig should be |a| when b = 0");
-        assertEquals(-1.0, result[0], EPSILON, "c should be -1 when b = 0 and a < 0");
+        result = Householder.g1(-5.0, 0.0);
+        assertEquals(5.0, result._3(), EPSILON, "sig should be |a| when b = 0");
+        assertEquals(-1.0, result._1(), EPSILON, "c should be -1 when b = 0 and a < 0");
     }
 
     // ========================================================================

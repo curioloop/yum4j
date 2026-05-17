@@ -2,6 +2,8 @@ package com.curioloop.yum4j.stats;
 
 import com.curioloop.yum4j.math.Double2;
 
+import java.util.random.RandomGenerator;
+
 /** Boost-style exponential distribution parameterized by lambda. */
 public value record ExponentialDistribution(double lambda) implements ContinuousDistribution {
 
@@ -126,5 +128,68 @@ public value record ExponentialDistribution(double lambda) implements Continuous
 
     private static ArithmeticException quantileOverflow(String method, double probability) {
         return new ArithmeticException("ExponentialDistribution." + method + " overflow: probability=" + probability);
+    }
+
+    // ---------------------------------------------------------------
+    // Batch / Sampling specialisations (particle-filter hot path)
+    // ---------------------------------------------------------------
+
+    /**
+     * {@code logPdf(x) = log(lambda) - lambda * x} for {@code x >= 0};
+     * {@link Double#NEGATIVE_INFINITY} otherwise.
+     */
+    @Override
+    public double logPdf(double x) {
+        if (!(x >= 0.0) || x == Double.POSITIVE_INFINITY) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        return Math.log(lambda) - lambda * x;
+    }
+
+    @Override
+    public void batch(Metric metric, double[] x, int xOff, int xStride, int n,
+                            double[] out, int outOff) {
+        if (n == 0) return;
+        final double lam = lambda;
+        switch (metric) {
+            case LOG_PDF -> {
+                final double logLam = Math.log(lam);
+                for (int i = 0; i < n; i++) {
+                    double xi = x[xOff + i * xStride];
+                    if (!(xi >= 0.0) || xi == Double.POSITIVE_INFINITY) {
+                        out[outOff + i] = Double.NEGATIVE_INFINITY;
+                        continue;
+                    }
+                    out[outOff + i] = logLam - lam * xi;
+                }
+            }
+            case PDF -> {
+                for (int i = 0; i < n; i++) {
+                    double xi = x[xOff + i * xStride];
+                    if (!(xi >= 0.0) || xi == Double.POSITIVE_INFINITY) {
+                        out[outOff + i] = 0.0;
+                        continue;
+                    }
+                    out[outOff + i] = lam * Math.exp(-lam * xi);
+                }
+            }
+            default -> ContinuousDistribution.super.batch(metric, x, xOff, xStride, n, out, outOff);
+        }
+    }
+
+    /**
+     * Inverse-CDF sampling: {@code -log(1 - U) / lambda}.
+     */
+    @Override
+    public double sample(RandomGenerator g) {
+        return -Math.log1p(-g.nextDouble()) / lambda;
+    }
+
+    @Override
+    public void sample(RandomGenerator g, int n, double[] out, int off, int stride) {
+        if (n == 0) return;
+        for (int i = 0; i < n; i++) {
+            out[off + i * stride] = -Math.log1p(-g.nextDouble()) / lambda;
+        }
     }
 }

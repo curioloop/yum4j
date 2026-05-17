@@ -68,6 +68,30 @@ class DdotTest {
     }
 
     @Test
+    void testReverseContiguousYMatchesReference() {
+        int n = 4096;
+        double[] x = randomVector(n + 5, 142);
+        double[] y = randomVector(n + 7, 184);
+
+        double expected = ddotReference(n, x, 3, 1, y, n + 2, -1);
+        double actual = Ddot.ddot(n, x, 3, 1, y, n + 2, -1);
+
+        assertEquals(expected, actual, 0.0);
+    }
+
+    @Test
+    void testReverseContiguousXMatchesReference() {
+        int n = 257;
+        double[] x = randomVector(n + 5, 242);
+        double[] y = randomVector(n + 7, 284);
+
+        double expected = ddotReference(n, x, n + 2, -1, y, 4, 1);
+        double actual = Ddot.ddot(n, x, n + 2, -1, y, 4, 1);
+
+        assertEquals(expected, actual, 0.0);
+    }
+
+    @Test
     void testAlternatingCancellationMatchesReference() {
         int n = 4096;
         double[] x = new double[n];

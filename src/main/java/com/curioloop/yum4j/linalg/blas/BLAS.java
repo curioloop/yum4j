@@ -487,7 +487,7 @@ public interface BLAS {
     /**
      * Solve triangular system T*x = b or Tᵀ*x = b (LINPACK dtrsl / BLAS dtrsv style).
      *
-     * @param t     the triangular matrix (column-major storage)
+     * @param t     the triangular matrix (row-major storage)
      * @param tOff  offset into array t
      * @param ldt   the leading dimension of the array t
      * @param n     the order of the system

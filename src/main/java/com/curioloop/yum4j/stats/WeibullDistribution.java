@@ -43,6 +43,35 @@ public value record WeibullDistribution(double shape, double scale) implements C
         return Math.exp(-Math.pow(scaledX, shape)) * Math.pow(scaledX, shape - 1.0) * shape / scale;
     }
 
+    /**
+     * Direct-formula log-pdf:
+     * {@code log(k) - log(σ) + (k-1)·log(x/σ) - (x/σ)^k}.
+     *
+     * <p>Matches {@link #pdf(double)} in the safe interior and preserves
+     * accuracy in the far right tail where {@code exp(-(x/σ)^k)} underflows.
+     */
+    @Override
+    public double logPdf(double x) {
+        validateX(x);
+        if (x == Double.POSITIVE_INFINITY) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        if (x == 0.0) {
+            if (shape == 1.0) {
+                return -Math.log(scale);
+            }
+            if (shape > 1.0) {
+                return Double.NEGATIVE_INFINITY;
+            }
+            // shape < 1: density diverges at 0, like the pdf overflow path.
+            return Double.POSITIVE_INFINITY;
+        }
+        double logScaledX = Math.log(x) - Math.log(scale);
+        return Math.log(shape) - Math.log(scale)
+            + (shape - 1.0) * logScaledX
+            - Math.exp(shape * logScaledX);
+    }
+
     @Override
     public double cdf(double x) {
         validateX(x);

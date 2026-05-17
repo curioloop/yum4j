@@ -1,5 +1,7 @@
 package com.curioloop.yum4j.fft;
 
+import com.curioloop.yum4j.math.VectorOps;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Objects;
@@ -121,7 +123,7 @@ final class FftRealPlan {
             }
         }
 
-        copyAndNorm(data, dataOffset, input, inputOffset, factor);
+        VectorOps.scalTo(data, dataOffset, factor, input, inputOffset, length);
     }
 
     FftWorkspace.Requirement workspaceRequirement() {
@@ -211,23 +213,6 @@ final class FftRealPlan {
 
             factors[factorIndex] = new FactorData(ip, twOffset, twsOffset);
             l1 *= ip;
-        }
-    }
-
-    private void copyAndNorm(double[] destination, int destinationOffset, double[] source, int sourceOffset,
-                             double factor) {
-        if (source != destination || sourceOffset != destinationOffset) {
-            if (factor == 1.0) {
-                System.arraycopy(source, sourceOffset, destination, destinationOffset, length);
-            } else {
-                for (int index = 0; index < length; index++) {
-                    destination[destinationOffset + index] = factor * source[sourceOffset + index];
-                }
-            }
-        } else if (factor != 1.0) {
-            for (int index = 0; index < length; index++) {
-                destination[destinationOffset + index] *= factor;
-            }
         }
     }
 

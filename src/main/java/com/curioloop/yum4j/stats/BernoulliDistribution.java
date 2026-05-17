@@ -2,6 +2,8 @@ package com.curioloop.yum4j.stats;
 
 import com.curioloop.yum4j.math.Double2;
 
+import java.util.random.RandomGenerator;
+
 /** Boost-style Bernoulli distribution. */
 public value record BernoulliDistribution(double successProbability) implements DiscreteDistribution {
 
@@ -98,6 +100,53 @@ public value record BernoulliDistribution(double successProbability) implements 
     private static void validateOutcome(double x) {
         if (!Double.isFinite(x) || !(x == 0.0 || x == 1.0)) {
             throw new IllegalArgumentException("x must be 0 or 1: " + x);
+        }
+    }
+
+    @Override
+    public double logPdf(double x) {
+        if (Double.isNaN(x)) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        if (x == 0.0) {
+            return successProbability == 1.0 ? Double.NEGATIVE_INFINITY : Math.log1p(-successProbability);
+        }
+        if (x == 1.0) {
+            return successProbability == 0.0 ? Double.NEGATIVE_INFINITY : Math.log(successProbability);
+        }
+        return Double.NEGATIVE_INFINITY;
+    }
+
+    @Override
+    public void batch(Metric metric, double[] x, int xOff, int xStride, int n, double[] out, int outOff) {
+        if (metric == Metric.LOG_PDF) {
+            if (n == 0) return;
+            final double logP = successProbability == 0.0 ? Double.NEGATIVE_INFINITY : Math.log(successProbability);
+            final double logQ = successProbability == 1.0 ? Double.NEGATIVE_INFINITY : Math.log1p(-successProbability);
+            for (int i = 0; i < n; i++) {
+                double v = x[xOff + i * xStride];
+                double r;
+                if (v == 0.0) r = logQ;
+                else if (v == 1.0) r = logP;
+                else r = Double.NEGATIVE_INFINITY;
+                out[outOff + i] = r;
+            }
+        } else {
+            DiscreteDistribution.super.batch(metric, x, xOff, xStride, n, out, outOff);
+        }
+    }
+
+    @Override
+    public double sample(RandomGenerator g) {
+        return g.nextDouble() < successProbability ? 1.0 : 0.0;
+    }
+
+    @Override
+    public void sample(RandomGenerator g, int n, double[] out, int off, int stride) {
+        if (n == 0) return;
+        final double p = successProbability;
+        for (int i = 0; i < n; i++) {
+            out[off + i * stride] = g.nextDouble() < p ? 1.0 : 0.0;
         }
     }
 

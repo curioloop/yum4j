@@ -1,0 +1,32 @@
+{
+  "_fixtureName": "flatnormal_basic",
+  "_configSha256": "749d89cc2f33c326db47b2d2fa4bf4dbbdb198968f70e7dc17cbbf886dd96c06",
+  "_referenceCommit": "f71e94a21a11c73b58e2d694775b1b1d379b8854",
+  "_generatedAt": "2026-05-12T09:59:01+00:00",
+  "_recordedRng": null,
+  "_config": {
+    "location": 0.0,
+    "finiteXs": [
+      -5.0,
+      0.0,
+      5.0
+    ]
+  },
+  "location": 0.0,
+  "xs": [
+    -5.0,
+    0.0,
+    5.0,
+    "NaN",
+    "Infinity",
+    "-Infinity"
+  ],
+  "logPdf": [
+    0.0,
+    0.0,
+    0.0,
+    "-Infinity",
+    "-Infinity",
+    "-Infinity"
+  ]
+}

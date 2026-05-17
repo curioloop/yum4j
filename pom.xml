@@ -209,4 +209,151 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+            JMH benchmark profile for particle-v2-perf (and any other JMH-driven work).
+
+            Activation:
+                mvn -Pjmh test-compile                                          (compile only)
+                mvn -Pjmh test-compile exec:exec@jmh-benchmark -Dbenchmarks=<regex>   (run)
+
+            What this profile adds on top of the default build:
+              1. Registers src/test/jmh as an additional test source root so benchmark
+                 classes for this spec can live outside the regular unit-test tree.
+              2. Enables JMH's annotation processor for test compilation so @Benchmark
+                 classes produce META-INF/BenchmarkList (required by org.openjdk.jmh.Main).
+                 The default pom sets <proc>none</proc> globally to keep fast test compiles;
+                 this profile overrides that only for default-testCompile.
+              3. Binds an execution of exec-maven-plugin (exec:exec → java →
+                 org.openjdk.jmh.Main) that forwards -Dbenchmarks=<regex> to JMH's
+                 benchmark-name filter. exec:exec is required (not exec:java) because
+                 JMH forks a fresh JVM per benchmark and the forked VM needs its own
+                 classpath.
+
+            Note: jmh-core and jmh-generator-annprocess dependencies remain at top-level
+            test scope because existing benchmarks outside this spec (src/test/java/.../stats,
+            math, fft) depend on them at compile time. Placing them only inside this profile
+            would break default test-compile.
+        -->
+        <profile>
+            <id>jmh</id>
+
+            <properties>
+                <!-- Default: match all benchmarks. Override with -Dbenchmarks=<regex>. -->
+                <benchmarks>.*</benchmarks>
+            </properties>
+
+            <dependencies>
+                <!--
+                    JOL (Java Object Layout) — used by particle-v2-mem's HistoryFootprintBench
+                    to measure deep retained size of ParticleHistory variants via
+                    GraphLayout.parseInstance(history).totalSize() (R1.2).
+
+                    Profile-scoped (not top-level) because no test under src/test/java
+                    references it; placing it here keeps it off the default `mvn test`
+                    classpath. This deviates from jmh-core/jmh-generator-annprocess (top-
+                    level) — those moved up because pre-existing benches outside this spec
+                    depend on them at compile time. JOL has no such constraint.
+
+                    Coordinates: the spec text says "1.17" but the latest GA on Maven
+                    Central is 0.17 (https://repo1.maven.org/maven2/org/openjdk/jol/jol-core/);
+                    using 0.17.
+                -->
+                <dependency>
+                    <groupId>org.openjdk.jol</groupId>
+                    <artifactId>jol-core</artifactId>
+                    <version>0.17</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+
+            <build>
+                <plugins>
+                    <!-- Register src/test/jmh as an extra test source root. -->
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <version>3.6.0</version>
+                        <executions>
+                            <execution>
+                                <id>add-jmh-test-source</id>
+                                <phase>generate-test-sources</phase>
+                                <goals><goal>add-test-source</goal></goals>
+                                <configuration>
+                                    <sources>
+                                        <source>src/test/jmh</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+
+                    <!-- Enable JMH annotation processor for test compilation only. -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <version>3.13.0</version>
+                        <executions>
+                            <execution>
+                                <id>default-testCompile</id>
+                                <phase>test-compile</phase>
+                                <goals><goal>testCompile</goal></goals>
+                                <configuration>
+                                    <source>${java.version}</source>
+                                    <target>${java.version}</target>
+                                    <release>${maven.compiler.release}</release>
+                                    <parameters>true</parameters>
+                                    <proc>full</proc>
+                                    <compilerArgs>
+                                        <arg>--enable-preview</arg>
+                                        <arg>--add-modules</arg>
+                                        <arg>${vector.module}</arg>
+                                    </compilerArgs>
+                                    <annotationProcessorPaths>
+                                        <path>
+                                            <groupId>org.openjdk.jmh</groupId>
+                                            <artifactId>jmh-generator-annprocess</artifactId>
+                                            <version>1.37</version>
+                                        </path>
+                                    </annotationProcessorPaths>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+
+                    <!--
+                        Bind `exec:exec` to run org.openjdk.jmh.Main with the benchmark regex.
+                        `exec:exec` (not `exec:java`) spawns a separate `java` process so that
+                        JMH's own `@Fork` mechanism can fork again with the correct classpath.
+                        `exec:java` runs in-process and the forked VM cannot see the JMH jars.
+                    -->
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.1.0</version>
+                        <executions>
+                            <execution>
+                                <id>jmh-benchmark</id>
+                                <phase>integration-test</phase>
+                                <goals><goal>exec</goal></goals>
+                                <configuration>
+                                    <executable>java</executable>
+                                    <classpathScope>test</classpathScope>
+                                    <arguments>
+                                        <argument>--enable-preview</argument>
+                                        <argument>--add-modules=${vector.module}</argument>
+                                        <argument>-classpath</argument>
+                                        <classpath/>
+                                        <argument>org.openjdk.jmh.Main</argument>
+                                        <argument>${benchmarks}</argument>
+                                    </arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

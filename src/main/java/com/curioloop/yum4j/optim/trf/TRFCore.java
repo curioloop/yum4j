@@ -79,6 +79,9 @@ import static com.curioloop.yum4j.optim.trf.TRFConstants.*;
  */
 final class TRFCore {
 
+    private static final int QRFAC_TRAILING_SCALAR_MIN_N = 8;
+    private static final int QRFAC_TRAILING_BLAS_MIN_N = 64;
+
     private TRFCore() {}
 
     // ── Linear algebra helpers ────────────────────────────────────────────────
@@ -163,23 +166,42 @@ final class TRFCore {
             ajnorm = Math.sqrt(ajnorm);
             if (ajnorm == 0.0) { rdiag[rdiagOff+j] = 0.0; continue; }
             if (a[j * n + j] < 0.0) ajnorm = -ajnorm;
-            for (int i = j; i < m; i++) a[i * n + j] /= ajnorm;
+            BLAS.dscal(m - j, 1.0 / ajnorm, a, j * n + j, n);
             a[j * n + j] += 1.0;
 
             int nk = n - j - 1;
             if (nk > 0) {
-                for (int k = j + 1; k < n; k++) tmp[tmpOff+k] = 0.0;
-                for (int i = j; i < m; i++) {
-                    double vij = a[i * n + j];
-                    int rowBase = i * n + j + 1;
-                    for (int k = 0; k < nk; k++) tmp[tmpOff+j+1+k] += vij * a[rowBase + k];
-                }
-                double ajj = a[j * n + j];
-                for (int k = j + 1; k < n; k++) tmp[tmpOff+k] /= ajj;
-                for (int i = j; i < m; i++) {
-                    double vij = a[i * n + j];
-                    int rowBase = i * n + j + 1;
-                    for (int k = 0; k < nk; k++) a[rowBase + k] -= tmp[tmpOff+j+1+k] * vij;
+                int tmpBase = tmpOff + j + 1;
+                Arrays.fill(tmp, tmpBase, tmpOff + n, 0.0);
+                if (nk >= QRFAC_TRAILING_SCALAR_MIN_N && nk < QRFAC_TRAILING_BLAS_MIN_N) {
+                    for (int i = j; i < m; i++) {
+                        double vij = a[i * n + j];
+                        int rowBase = i * n + j + 1;
+                        for (int k = 0; k < nk; k++) {
+                            tmp[tmpBase + k] = Math.fma(vij, a[rowBase + k], tmp[tmpBase + k]);
+                        }
+                    }
+                    double invAjj = 1.0 / a[j * n + j];
+                    for (int k = 0; k < nk; k++) tmp[tmpBase + k] *= invAjj;
+                    for (int i = j; i < m; i++) {
+                        double vij = a[i * n + j];
+                        int rowBase = i * n + j + 1;
+                        for (int k = 0; k < nk; k++) {
+                            a[rowBase + k] = Math.fma(-vij, tmp[tmpBase + k], a[rowBase + k]);
+                        }
+                    }
+                } else {
+                    for (int i = j; i < m; i++) {
+                        double vij = a[i * n + j];
+                        int rowBase = i * n + j + 1;
+                        BLAS.daxpy(nk, vij, a, rowBase, 1, tmp, tmpBase, 1);
+                    }
+                    BLAS.dscal(nk, 1.0 / a[j * n + j], tmp, tmpBase, 1);
+                    for (int i = j; i < m; i++) {
+                        double vij = a[i * n + j];
+                        int rowBase = i * n + j + 1;
+                        BLAS.daxpy(nk, -vij, tmp, tmpBase, 1, a, rowBase, 1);
+                    }
                 }
                 for (int k = j + 1; k < n; k++) {
                     if (rdiag[rdiagOff+k] != 0.0) {
@@ -221,7 +243,7 @@ final class TRFCore {
             double sum = 0.0;
             for (int i = j; i < m; i++) sum += fjac[i*n+j] * b[i];
             double tmp = -sum / fjac[j*n+j];
-            for (int i = j; i < m; i++) b[i] += fjac[i*n+j] * tmp;
+            BLAS.daxpy(m - j, tmp, fjac, j * n + j, n, b, j, 1);
             fjac[j*n+j] = rdiag[rdiagOff+j];
         }
     }
@@ -920,15 +942,10 @@ final class TRFCore {
             // ── Evaluate residuals and Jacobian ───────────────────────────────
             fcn.evaluate(x, n, fvec, m, fjac);
 
-            // ── Compute robust cost BEFORE scaling (uses original residuals) ──
-            // Must be computed here because scaleJF modifies fvec in-place.
-            cost = loss.cost(fvec, m, lossScale);
-
-            // ── Apply robust loss scaling to J and f BEFORE QR factorization ──
+            // ── Compute robust cost and apply loss scaling BEFORE QR factorization ──
             // scipy applies scale_for_robust_loss_function before QR, so all
             // subsequent steps (qrfac, lmpar, gradient) operate on the scaled system.
-            // No-op for LINEAR.
-            loss.scaleJF(fvec, fjac, m, n, lossScale);
+            cost = loss.costAndScaleJF(fvec, fjac, m, n, lossScale);
 
             // ── Factor J·P = Q·R (on the loss-scaled Jacobian) ───────────────
             // wa1 → rdiag, wa2 → acnorm (offset 0, standalone), wa3 → wa scratch, qtf → tmp scratch

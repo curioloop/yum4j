@@ -3,6 +3,8 @@
  */
 package com.curioloop.yum4j.optim.trf;
 
+import com.curioloop.yum4j.linalg.blas.BLAS;
+
 /**
  * Built-in robust loss functions for Trust Region Reflective (TRF) least-squares.
  *
@@ -157,6 +159,74 @@ public enum RobustLoss {
     }
 
     /**
+     * Computes robust cost and scales the Jacobian/residual vector.
+     *
+     * <p>This is equivalent to calling {@link #cost(double[], int, double)} before
+     * {@link #scaleJF(double[], double[], int, int, double)}. Losses with reusable
+     * intermediates use a fused implementation; other losses intentionally use the
+     * separate cost and scaling kernels.</p>
+     */
+    public double costAndScaleJF(double[] fvec, double[] fjac, int m, int n, double fScale) {
+        if (this == LINEAR) {
+            return cost(fvec, m, fScale);
+        }
+        if (this == CAUCHY || this == ARCTAN) {
+            double cost = cost(fvec, m, fScale);
+            scaleJF(fvec, fjac, m, n, fScale);
+            return cost;
+        }
+
+        final double eps = TRFConstants.EPSMCH;
+        final double c2 = fScale * fScale;
+        final double invC2 = 1.0 / c2;
+        double sum = 0.0;
+        for (int i = 0; i < m; i++) {
+            double fi = fvec[i];
+            double z = fi * fi * invC2;
+            double rho0;
+            double rho1;
+            double rho2;
+            switch (this) {
+                case SOFT_L1: {
+                    double t = 1.0 + z;
+                    double sqrtT = Math.sqrt(t);
+                    rho0 = 2.0 * (sqrtT - 1.0);
+                    rho1 = 1.0 / sqrtT;
+                    rho2 = -0.5 / (t * sqrtT);
+                    break;
+                }
+                case HUBER: {
+                    if (z <= 1.0) {
+                        rho0 = z;
+                        rho1 = 1.0;
+                        rho2 = 0.0;
+                    } else {
+                        double sqrtZ = Math.sqrt(z);
+                        rho0 = 2.0 * sqrtZ - 1.0;
+                        rho1 = 1.0 / sqrtZ;
+                        rho2 = -0.5 / (z * sqrtZ);
+                    }
+                    break;
+                }
+                default:
+                    rho0 = z;
+                    rho1 = 1.0;
+                    rho2 = 0.0;
+            }
+            sum += rho0;
+
+            double jScale = rho1 + 2.0 * rho2 * z;
+            if (jScale < eps) jScale = eps;
+            jScale = Math.sqrt(jScale);
+            fvec[i] = fi * rho1 / jScale;
+
+            int rowBase = i * n;
+            for (int j = 0; j < n; j++) fjac[rowBase + j] *= jScale;
+        }
+        return 0.5 * c2 * sum;
+    }
+
+    /**
      * Computes the robust cost: 0.5 * C² * Σ ρ(fᵢ²/C²).
      *
      * <p>For {@link #LINEAR} this equals the standard 0.5·‖f‖².</p>
@@ -168,9 +238,7 @@ public enum RobustLoss {
      */
     public double cost(double[] fvec, int m, double fScale) {
         if (this == LINEAR) {
-            double s = 0.0;
-            for (int i = 0; i < m; i++) s += fvec[i] * fvec[i];
-            return 0.5 * s;
+            return 0.5 * BLAS.ddot(m, fvec, 0, 1, fvec, 0, 1);
         }
         double invC2 = 1.0 / (fScale * fScale);
         double sum = 0.0;

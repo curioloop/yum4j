@@ -34,6 +34,23 @@ public value record CauchyDistribution(double location, double scale) implements
         return 1.0 / (Math.PI * scale * (1.0 + standardized * standardized));
     }
 
+    /**
+     * Direct-formula log-pdf: {@code -log(π·σ) - log1p(z²)} with
+     * {@code z = (x - μ)/σ}.
+     *
+     * <p>Uses {@link Math#log1p} to avoid precision loss for small
+     * {@code z} compared to the default {@code log(pdf(x))}.
+     */
+    @Override
+    public double logPdf(double x) {
+        validateX(x);
+        if (Double.isInfinite(x)) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        double z = (x - location) / scale;
+        return -Math.log(Math.PI) - Math.log(scale) - Math.log1p(z * z);
+    }
+
     @Override
     public double cdf(double x) {
         validateX(x);

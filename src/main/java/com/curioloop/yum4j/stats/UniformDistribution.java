@@ -2,6 +2,8 @@ package com.curioloop.yum4j.stats;
 
 import com.curioloop.yum4j.math.Double2;
 
+import java.util.random.RandomGenerator;
+
 /** Boost-style continuous uniform distribution on [lower, upper]. */
 public value record UniformDistribution(double lower, double upper) implements ContinuousDistribution {
 
@@ -128,6 +130,71 @@ public value record UniformDistribution(double lower, double upper) implements C
     private static void validateProbability(double probability) {
         if (!Double.isFinite(probability) || probability < 0.0 || probability > 1.0) {
             throw new IllegalArgumentException("probability must be in [0, 1]: " + probability);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Batch / Sampling specialisations (particle-filter hot path)
+    // ---------------------------------------------------------------
+
+    /**
+     * {@code logPdf(x) = -log(upper - lower)} for {@code lower <= x <= upper};
+     * {@link Double#NEGATIVE_INFINITY} otherwise.
+     */
+    @Override
+    public double logPdf(double x) {
+        if (Double.isNaN(x) || x < lower || x > upper) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        return -Math.log(upper - lower);
+    }
+
+    @Override
+    public void batch(Metric metric, double[] x, int xOff, int xStride, int n,
+                            double[] out, int outOff) {
+        if (n == 0) return;
+        switch (metric) {
+            case LOG_PDF -> {
+                final double lo = lower;
+                final double hi = upper;
+                final double logDensity = -Math.log(hi - lo);
+                for (int i = 0; i < n; i++) {
+                    double xi = x[xOff + i * xStride];
+                    if (Double.isNaN(xi) || xi < lo || xi > hi) {
+                        out[outOff + i] = Double.NEGATIVE_INFINITY;
+                    } else {
+                        out[outOff + i] = logDensity;
+                    }
+                }
+            }
+            case PDF -> {
+                final double lo = lower;
+                final double hi = upper;
+                final double density = 1.0 / (hi - lo);
+                for (int i = 0; i < n; i++) {
+                    double xi = x[xOff + i * xStride];
+                    out[outOff + i] = (Double.isNaN(xi) || xi < lo || xi > hi) ? 0.0 : density;
+                }
+            }
+            default -> ContinuousDistribution.super.batch(metric, x, xOff, xStride, n, out, outOff);
+        }
+    }
+
+    /**
+     * {@code lower + (upper - lower) * U(0, 1)}.
+     */
+    @Override
+    public double sample(RandomGenerator g) {
+        return lower + (upper - lower) * g.nextDouble();
+    }
+
+    @Override
+    public void sample(RandomGenerator g, int n, double[] out, int off, int stride) {
+        if (n == 0) return;
+        final double lo = lower;
+        final double width = upper - lower;
+        for (int i = 0; i < n; i++) {
+            out[off + i * stride] = lo + width * g.nextDouble();
         }
     }
 }

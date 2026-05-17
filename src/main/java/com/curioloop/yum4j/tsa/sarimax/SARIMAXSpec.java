@@ -1,7 +1,8 @@
 package com.curioloop.yum4j.tsa.sarimax;
 
+import com.curioloop.yum4j.stats.tool.TrendTerms;
+
 import java.util.Arrays;
-import java.util.EnumSet;
 import java.util.Objects;
 
 /**
@@ -10,12 +11,16 @@ import java.util.Objects;
 public final class SARIMAXSpec {
 
     private static final double DEFAULT_APPROXIMATE_DIFFUSE_VARIANCE = 1e6;
+    private static final int DEFAULT_TREND_OFFSET = 1;
+    private static final int DEFAULT_OPTION_MASK = bit(SARIMAXOption.ENFORCE_STATIONARITY)
+        | bit(SARIMAXOption.ENFORCE_INVERTIBILITY);
 
     private final ARIMAOrder order;
     private final SeasonalOrder seasonalOrder;
     private final double[] endog;
     private final double[][] exog;
     private final int[] trendPowers;
+    private final int trendOffset;
     private final int[] autoregressiveLags;
     private final int[] movingAverageLags;
     private final int[] seasonalAutoregressiveLags;
@@ -27,14 +32,16 @@ public final class SARIMAXSpec {
     private final boolean simpleDifferencing;
     private final boolean hamiltonRepresentation;
     private final Double approximateDiffuseVariance;
-    private final EnumSet<SARIMAXOption> options;
+    private final Integer logLikelihoodBurn;
+    private final int optionMask;
 
     private SARIMAXSpec(Builder builder) {
         this.order = Objects.requireNonNull(builder.order, "order");
         this.seasonalOrder = builder.seasonalOrder == null ? SeasonalOrder.none() : builder.seasonalOrder;
         this.endog = copyEndog(builder.endog);
         this.exog = copyExog(builder.exog);
-        this.trendPowers = normalizeTrendPowers(builder.trendPowers);
+        this.trendPowers = TrendTerms.normalizePowers(builder.trendPowers);
+        this.trendOffset = builder.trendOffset;
         this.autoregressiveLags = normalizeLags(order.autoregressive(), builder.autoregressiveLags, "autoregressive");
         this.movingAverageLags = normalizeLags(order.movingAverage(), builder.movingAverageLags, "movingAverage");
         this.seasonalAutoregressiveLags = seasonalLags(seasonalOrder.autoregressive(), seasonalOrder.period());
@@ -46,7 +53,8 @@ public final class SARIMAXSpec {
         this.simpleDifferencing = builder.simpleDifferencing;
         this.hamiltonRepresentation = builder.hamiltonRepresentation;
         this.approximateDiffuseVariance = builder.approximateDiffuseVariance;
-        this.options = EnumSet.copyOf(builder.options);
+        this.logLikelihoodBurn = builder.logLikelihoodBurn;
+        this.optionMask = builder.optionMask;
         validate();
     }
 
@@ -84,6 +92,10 @@ public final class SARIMAXSpec {
 
     public boolean hasTrend() {
         return trendPowers.length > 0;
+    }
+
+    public int trendOffset() {
+        return trendOffset;
     }
 
     public int[] autoregressiveLags() {
@@ -150,12 +162,28 @@ public final class SARIMAXSpec {
         return approximateDiffuseVariance == null ? DEFAULT_APPROXIMATE_DIFFUSE_VARIANCE : approximateDiffuseVariance;
     }
 
-    public EnumSet<SARIMAXOption> options() {
-        return EnumSet.copyOf(options);
+    public boolean hasLogLikelihoodBurn() {
+        return logLikelihoodBurn != null;
+    }
+
+    public int logLikelihoodBurn() {
+        return logLikelihoodBurn == null ? 0 : logLikelihoodBurn;
+    }
+
+    public SARIMAXOption[] options() {
+        SARIMAXOption[] values = SARIMAXOption.values();
+        SARIMAXOption[] selected = new SARIMAXOption[Integer.bitCount(optionMask)];
+        int count = 0;
+        for (SARIMAXOption option : values) {
+            if (hasOption(option)) {
+                selected[count++] = option;
+            }
+        }
+        return selected;
     }
 
     public boolean hasOption(SARIMAXOption option) {
-        return options.contains(option);
+        return (optionMask & bit(Objects.requireNonNull(option, "option"))) != 0;
     }
 
     public int observationCount() {
@@ -189,6 +217,7 @@ public final class SARIMAXSpec {
                 }
             }
         }
+        TrendTerms.validateOffset(trendOffset);
         if (!seasonalOrder.isZero() && seasonalOrder.period() <= 1) {
             throw new IllegalArgumentException("seasonal period must be greater than 1");
         }
@@ -227,24 +256,6 @@ public final class SARIMAXSpec {
             copy[row] = exog[row] == null ? null : exog[row].clone();
         }
         return copy;
-    }
-
-    private static int[] normalizeTrendPowers(int[] trendPowers) {
-        if (trendPowers == null || trendPowers.length == 0) {
-            return new int[0];
-        }
-        int[] copy = trendPowers.clone();
-        Arrays.sort(copy);
-        int uniqueCount = 0;
-        for (int power : copy) {
-            if (power < 0) {
-                throw new IllegalArgumentException("trend powers must be non-negative");
-            }
-            if (uniqueCount == 0 || copy[uniqueCount - 1] != power) {
-                copy[uniqueCount++] = power;
-            }
-        }
-        return Arrays.copyOf(copy, uniqueCount);
     }
 
     private static int[] normalizeLags(int maxLag, int[] lags, String label) {
@@ -303,12 +314,17 @@ public final class SARIMAXSpec {
         return false;
     }
 
+    private static int bit(SARIMAXOption option) {
+        return 1 << option.ordinal();
+    }
+
     public static final class Builder {
         private final ARIMAOrder order;
         private final double[] endog;
         private SeasonalOrder seasonalOrder;
         private double[][] exog;
         private int[] trendPowers;
+        private int trendOffset = DEFAULT_TREND_OFFSET;
         private int[] autoregressiveLags;
         private int[] movingAverageLags;
         private boolean measurementError;
@@ -318,9 +334,8 @@ public final class SARIMAXSpec {
         private boolean simpleDifferencing;
         private boolean hamiltonRepresentation;
         private Double approximateDiffuseVariance;
-        private final EnumSet<SARIMAXOption> options = EnumSet.of(
-            SARIMAXOption.ENFORCE_STATIONARITY,
-            SARIMAXOption.ENFORCE_INVERTIBILITY);
+        private Integer logLikelihoodBurn;
+        private int optionMask = DEFAULT_OPTION_MASK;
 
         private Builder(ARIMAOrder order, double[] endog) {
             this.order = Objects.requireNonNull(order, "order");
@@ -339,6 +354,20 @@ public final class SARIMAXSpec {
 
         public Builder trendPowers(int... trendPowers) {
             this.trendPowers = trendPowers;
+            return this;
+        }
+
+        public Builder trend(TrendTerms trend) {
+            this.trendPowers = Objects.requireNonNull(trend, "trend").powers();
+            return this;
+        }
+
+        public Builder trend(String trend) {
+            return trend(TrendTerms.fromString(trend));
+        }
+
+        public Builder trendOffset(int trendOffset) {
+            this.trendOffset = trendOffset;
             return this;
         }
 
@@ -387,13 +416,21 @@ public final class SARIMAXSpec {
             return this;
         }
 
+        public Builder logLikelihoodBurn(int logLikelihoodBurn) {
+            if (logLikelihoodBurn < 0) {
+                throw new IllegalArgumentException("logLikelihoodBurn must be non-negative");
+            }
+            this.logLikelihoodBurn = logLikelihoodBurn;
+            return this;
+        }
+
         public Builder include(SARIMAXOption option) {
-            options.add(option);
+            optionMask |= bit(Objects.requireNonNull(option, "option"));
             return this;
         }
 
         public Builder exclude(SARIMAXOption option) {
-            options.remove(option);
+            optionMask &= ~bit(Objects.requireNonNull(option, "option"));
             return this;
         }
 

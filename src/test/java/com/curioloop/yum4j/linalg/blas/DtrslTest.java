@@ -12,6 +12,31 @@ import static org.junit.jupiter.api.Assertions.*;
 class DtrslTest {
 
     @Test
+    void usesRowMajorStorage() {
+        double[] rowMajorLower = {
+            2, 0, 0,
+            3, 5, 0,
+            7, 11, 13
+        };
+        double[] columnMajorLower = {
+            2, 3, 7,
+            0, 5, 11,
+            0, 0, 13
+        };
+        double[] rowMajorRhs = {34, 146, 627};
+        double[] columnMajorRhs = rowMajorRhs.clone();
+
+        int rowMajorInfo = Dtrsl.dtrsl(rowMajorLower, 0, 3, 3, rowMajorRhs, 0, BLAS.Uplo.Lower, BLAS.Trans.NoTrans);
+        int columnMajorInfo = Dtrsl.dtrsl(columnMajorLower, 0, 3, 3, columnMajorRhs, 0, BLAS.Uplo.Lower, BLAS.Trans.NoTrans);
+
+        assertEquals(0, rowMajorInfo);
+        assertEquals(0, columnMajorInfo);
+        assertArrayEquals(new double[] {17.0, 19.0, 23.0}, rowMajorRhs, 1e-12);
+        assertNotEquals(19.0, columnMajorRhs[1], 1e-12);
+        assertNotEquals(23.0, columnMajorRhs[2], 1e-12);
+    }
+
+    @Test
     void testUpper() {
         double[] A = {
             2, 1, 0,

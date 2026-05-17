@@ -3,6 +3,7 @@ package com.curioloop.yum4j.stats;
 import com.curioloop.yum4j.math.Double2;
 
 import com.curioloop.yum4j.math.Beta;
+import com.curioloop.yum4j.math.Gamma;
 
 /** Boost-style negative binomial distribution for failures before a target number of successes. */
 public value record NegativeBinomialDistribution(double successes, double successFraction)
@@ -37,6 +38,34 @@ public value record NegativeBinomialDistribution(double successes, double succes
             return k == 0L ? 1.0 : 0.0;
         }
         return (successFraction / (successes + k)) * Beta.ibetaDerivative(successes, k + 1.0, successFraction);
+    }
+
+    /**
+     * Direct-formula log-pmf:
+     * {@code lgamma(k+r) - lgamma(k+1) - lgamma(r) + r·log(p) + k·log(1-p)}
+     * where {@code r = successes, p = successFraction, k = x}.
+     *
+     * <p>Avoids underflow-through-zero that plagues
+     * {@link #pdf(double)} for large {@code k} when {@code p < 1}.
+     */
+    @Override
+    public double logPdf(double x) {
+        validateX(x);
+        if (Double.isInfinite(x) || x < 0.0 || x != Math.rint(x)) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        long k = (long) x;
+        if (successFraction == 0.0) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        if (successFraction == 1.0) {
+            return k == 0L ? 0.0 : Double.NEGATIVE_INFINITY;
+        }
+        return Gamma.lgamma(successes + k)
+            - Gamma.lgamma(k + 1.0)
+            - Gamma.lgamma(successes)
+            + successes * Math.log(successFraction)
+            + k * Math.log1p(-successFraction);
     }
 
     @Override

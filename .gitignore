@@ -1,7 +1,11 @@
 .idea/
 .kiro/
+.venv/
 .claude/
 .vscode/
+bench/
+docs/
 tmp/
+tools/
 target/
 reference/
