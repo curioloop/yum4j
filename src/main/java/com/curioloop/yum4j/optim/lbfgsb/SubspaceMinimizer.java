@@ -228,6 +228,7 @@ final class SubspaceMinimizer implements LBFGSBConstants {
         int free = ws.getFree();
         int m2 = 2 * m;
         double theta = ws.getTheta();
+        double invTheta = 1.0 / theta;
 
         // If no free variables, nothing to do
         if (free <= 0) {
@@ -308,10 +309,12 @@ final class SubspaceMinimizer implements LBFGSBConstants {
         ptr = head;
         for (int j = 0; j < col; j++) {
             int js = col + j;
+            double wyScale = buffer[wvOffset + j] * invTheta;
+            double wsScale = buffer[wvOffset + js];
             for (int i = 0; i < free; i++) {
                 int k = iBuffer[indexOffset + i];  // Index of free variable
-                buffer[rOffset + i] += (buffer[wyOffset + k * m + ptr] * buffer[wvOffset + j] / theta)
-                                     + (buffer[wsOffset + k * m + ptr] * buffer[wvOffset + js]);
+                buffer[rOffset + i] += buffer[wyOffset + k * m + ptr] * wyScale
+                                     + buffer[wsOffset + k * m + ptr] * wsScale;
             }
             ptr = (ptr + 1) % m;
         }
@@ -319,7 +322,7 @@ final class SubspaceMinimizer implements LBFGSBConstants {
         // Scale r̃ᶜ + (1/θ)ZᵀWK⁻¹WᵀZr̃ᶜ by 1/θ
         // Note: Go uses d[i] *= one / theta which is equivalent to d[i] /= theta
         for (int i = 0; i < free; i++) {
-            buffer[rOffset + i] *= 1.0 / theta;
+            buffer[rOffset + i] *= invTheta;
         }
 
         // ========================================================================

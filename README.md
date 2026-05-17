@@ -167,18 +167,18 @@ Optimization result = Minimizer.trf()
 
 ```java
 // OLS with SVD solver (X is overwritten in-place)
-OLS r = Regressor.ols(y, X, n, k, Regressor.Opts.PINV);
+OLS r = Regressor.ols(y, X, n, k, Regressor.Opts.PINV, Regressor.Opts.INFERENCE);
 
 // OLS with QR solver (faster when X is full rank)
-OLS r = Regressor.ols(y, X, n, k, Regressor.Opts.QR);
+OLS r = Regressor.ols(y, X, n, k, Regressor.Opts.QR, Regressor.Opts.INFERENCE);
 
 // WLS with per-observation weights (X is overwritten in-place)
-WLS r = Regressor.wls(y, X, weights, n, k, Regressor.Opts.PINV);
+WLS r = Regressor.wls(y, X, weights, n, k, Regressor.Opts.PINV, Regressor.Opts.INFERENCE);
 
 // Workspace reuse across multiple fits
 OLS.Pool ws = new OLS.Pool();
 for (double[] Xi : series) {
-    OLS r = Regressor.ols(y, Xi.clone(), n, k, ws, Regressor.Opts.PINV);
+    OLS r = Regressor.ols(y, Xi.clone(), n, k, ws, Regressor.Opts.PINV, Regressor.Opts.INFERENCE);
     double[] beta = r.params();
     double   r2   = r.r2(false);
 }
@@ -545,17 +545,19 @@ RootFinder.broyden(Multivariate.Objective fn, int n)            // → BroydenPr
 ### Regressor (facade — linear regression)
 
 ```java
-Regressor.ols(y, X, n, k, Opts...)           // OLS, must specify Opts.QR or Opts.PINV
+Regressor.ols(y, X, n, k, Opts...)           // OLS, must specify a solver and one output opt
 Regressor.ols(y, X, n, k, Pool, Opts...)     // OLS with workspace reuse
-Regressor.wls(y, X, w, n, k, Opts...)        // WLS
+Regressor.wls(y, X, w, n, k, Opts...)        // WLS, must specify a solver and one output opt
 Regressor.wls(y, X, w, n, k, Pool, Opts...)  // WLS with workspace reuse
+Regressor.gls(y, X, sigma, n, k, Opts...)    // GLS, must specify a solver and one output opt
+Regressor.gls(y, X, sigma, n, k, Pool, Opts...) // GLS with workspace reuse
 ```
 
-`Opts.QR` — QR factorization (faster, full-rank X); `Opts.PINV` — SVD pseudoinverse (robust, rank-deficient X); `Opts.HAS_CONST` — declare X has a constant column (kConst=1, skip detection); `Opts.NO_CONST` — declare X has no constant column (kConst=0, skip detection).
+`Opts.QR` — QR factorization (faster, full-rank X); `Opts.PINV` — SVD pseudoinverse (robust, rank-deficient X); `Opts.HAS_CONST` — declare X has a constant column (kConst=1, skip detection); `Opts.NO_CONST` — declare X has no constant column (kConst=0, skip detection). Regressor fits additionally require exactly one output opt: `Opts.PARAMS`, `Opts.FITNESS`, `Opts.ESTIMATION`, or `Opts.INFERENCE`.
 
-**Both OLS and WLS overwrite X in-place.** y is never modified. WLS additionally writes whitened y~ into `WLS.Pool.yWhiten`.
+**OLS, WLS, and GLS overwrite X in-place.** y is never modified. WLS and GLS keep their whitened endogenous vectors in reusable Pool buffers; full-matrix GLS overwrites sigma with its Cholesky factor.
 
-Key result methods on `Regression` (base of `OLS`/`WLS`):
+Key result methods on `Regression` (base of `OLS`/`WLS`/`GLS`):
 
 | Method | Description |
 |---|---|

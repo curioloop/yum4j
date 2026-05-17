@@ -63,6 +63,42 @@ public value record HyperexponentialDistribution(double[] probabilities, double[
         return result;
     }
 
+    /**
+     * Direct-formula log-pdf via log-sum-exp over the phases:
+     * {@code log(Σᵢ pᵢ · λᵢ · exp(-λᵢ · x))} =
+     * {@code M + log(Σᵢ exp(log(pᵢ·λᵢ) - λᵢ·x - M))} with
+     * {@code M = max_i (log(pᵢ·λᵢ) - λᵢ·x)}.
+     *
+     * <p>Preserves accuracy in the far right tail where the default
+     * {@code Math.log(pdf(x))} underflows to {@code -Infinity}.
+     */
+    @Override
+    public double logPdf(double x) {
+        validateX(x);
+        if (x == Double.POSITIVE_INFINITY) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        int k = rates.length;
+        // Compute per-phase log-weight: log(p[i] · λ[i]) - λ[i]·x.
+        double max = Double.NEGATIVE_INFINITY;
+        double[] terms = new double[k];
+        for (int i = 0; i < k; i++) {
+            double logWeight = probabilities[i] > 0.0
+                ? Math.log(probabilities[i]) + Math.log(rates[i]) - rates[i] * x
+                : Double.NEGATIVE_INFINITY;
+            terms[i] = logWeight;
+            if (logWeight > max) max = logWeight;
+        }
+        if (max == Double.NEGATIVE_INFINITY) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        double sum = 0.0;
+        for (int i = 0; i < k; i++) {
+            sum += Math.exp(terms[i] - max);
+        }
+        return max + Math.log(sum);
+    }
+
     @Override
     public double cdf(double x) {
         validateX(x);

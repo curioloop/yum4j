@@ -1,5 +1,7 @@
 package com.curioloop.yum4j.fft;
 
+import com.curioloop.yum4j.math.VectorOps;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Objects;
@@ -169,22 +171,7 @@ final class FftComplexPlan {
             l1 = l2;
         }
         
-        // Copy result and apply scaling factor
-        if (input != data || inputOffset != dataOffset) {
-            if (factor == 1.0) {
-                System.arraycopy(input, inputOffset, data, dataOffset, 2 * length);
-            } else {
-                for (int i = 0; i < 2 * length; i++) {
-                    data[dataOffset + i] = input[inputOffset + i] * factor;
-                }
-            }
-        } else {
-            if (factor != 1.0) {
-                for (int i = 0; i < 2 * length; i++) {
-                    data[dataOffset + i] *= factor;
-                }
-            }
-        }
+        VectorOps.scalTo(data, dataOffset, factor, input, inputOffset, 2 * length);
     }
 
     FftWorkspace.Requirement workspaceRequirement() {

@@ -39,6 +39,27 @@ public value record ExtremeValueDistribution(double location, double scale) impl
         return Math.exp(exponent - expExponent) / scale;
     }
 
+    /**
+     * Direct-formula log-pdf: {@code z - exp(z) - log(σ)} with
+     * {@code z = (μ - x)/σ}.
+     *
+     * <p>Preserves accuracy in the far right tail where the density
+     * underflows via the {@code exp(z - exp(z))} factor.
+     */
+    @Override
+    public double logPdf(double x) {
+        validateX(x);
+        if (x == Double.POSITIVE_INFINITY) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        if (x == Double.NEGATIVE_INFINITY) {
+            // z → +∞, exp(z) dominates → -∞ fastest.
+            return Double.NEGATIVE_INFINITY;
+        }
+        double z = (location - x) / scale;
+        return z - Math.exp(z) - Math.log(scale);
+    }
+
     @Override
     public double cdf(double x) {
         validateX(x);

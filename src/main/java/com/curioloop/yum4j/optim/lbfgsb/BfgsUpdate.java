@@ -240,9 +240,14 @@ final class BfgsUpdate implements LBFGSBConstants {
         int wtOffset = ws.getWtOffset();  // Cholesky factor output
         int ssOffset = ws.getSsOffset();  // S'S matrix
         int syOffset = ws.getSyOffset();  // S'Y matrix
+        int diagInvOffset = ws.getDiagInvOffset();
 
         if (col == 0) {
             return ERR_NONE;
+        }
+
+        for (int k = 0; k < col; k++) {
+            buffer[diagInvOffset + k] = 1.0 / buffer[syOffset + k * m + k];
         }
 
         // Form the upper half of T = θS'S + LD⁻¹L'
@@ -258,7 +263,7 @@ final class BfgsUpdate implements LBFGSBConstants {
                 int kk = Math.min(i, j);
                 for (int k = 0; k < kk; k++) {
                     ldl += buffer[syOffset + i * m + k] * buffer[syOffset + j * m + k]
-                         / buffer[syOffset + k * m + k];
+                         * buffer[diagInvOffset + k];
                 }
                 buffer[wtOffset + i * m + j] = ldl + theta * buffer[ssOffset + i * m + j];
             }

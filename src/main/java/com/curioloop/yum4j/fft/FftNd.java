@@ -2158,58 +2158,72 @@ final class FftNd {
     }
 
     private static void copyInputComplex(MultiIter line, double[] input, double[] buffer, int bufferOffset) {
-        if (input == buffer && line.iofs(0) == bufferOffset && line.strideIn() == 2) {
+        int source = line.iofs(0);
+        int stride = line.strideIn();
+        int length = line.lengthIn();
+        if (input == buffer && source == bufferOffset && stride == 2) {
             return;
         }
-        if (line.strideIn() == 2) {
-            System.arraycopy(input, line.iofs(0), buffer, bufferOffset, 2 * line.lengthIn());
+        if (stride == 2) {
+            System.arraycopy(input, source, buffer, bufferOffset, 2 * length);
             return;
         }
-        for (int i = 0; i < line.lengthIn(); i++) {
-            int source = line.iofs(i);
-            buffer[bufferOffset + 2 * i] = input[source];
-            buffer[bufferOffset + 2 * i + 1] = input[source + 1];
+        int target = bufferOffset;
+        for (int i = 0; i < length; i++, source += stride, target += 2) {
+            buffer[target] = input[source];
+            buffer[target + 1] = input[source + 1];
         }
     }
 
     private static void copyInputReal(MultiIter line, double[] input, double[] buffer, int bufferOffset) {
-        if (input == buffer && line.iofs(0) == bufferOffset && line.strideIn() == 1) {
+        int source = line.iofs(0);
+        int stride = line.strideIn();
+        int length = line.lengthIn();
+        if (input == buffer && source == bufferOffset && stride == 1) {
             return;
         }
-        if (line.strideIn() == 1) {
-            System.arraycopy(input, line.iofs(0), buffer, bufferOffset, line.lengthIn());
+        if (stride == 1) {
+            System.arraycopy(input, source, buffer, bufferOffset, length);
             return;
         }
-        for (int i = 0; i < line.lengthIn(); i++) {
-            buffer[bufferOffset + i] = input[line.iofs(i)];
+        int target = bufferOffset;
+        for (int i = 0; i < length; i++, source += stride, target++) {
+            buffer[target] = input[source];
         }
     }
 
     private static void copyOutputComplex(MultiIter line, double[] buffer, int bufferOffset, double[] output) {
-        if (buffer == output && bufferOffset == line.oofs(0) && line.strideOut() == 2) {
+        int target = line.oofs(0);
+        int stride = line.strideOut();
+        int length = line.lengthOut();
+        if (buffer == output && bufferOffset == target && stride == 2) {
             return;
         }
-        if (line.strideOut() == 2) {
-            System.arraycopy(buffer, bufferOffset, output, line.oofs(0), 2 * line.lengthOut());
+        if (stride == 2) {
+            System.arraycopy(buffer, bufferOffset, output, target, 2 * length);
             return;
         }
-        for (int i = 0; i < line.lengthOut(); i++) {
-            int target = line.oofs(i);
-            output[target] = buffer[bufferOffset + 2 * i];
-            output[target + 1] = buffer[bufferOffset + 2 * i + 1];
+        int source = bufferOffset;
+        for (int i = 0; i < length; i++, source += 2, target += stride) {
+            output[target] = buffer[source];
+            output[target + 1] = buffer[source + 1];
         }
     }
 
     private static void copyOutputReal(MultiIter line, double[] buffer, int bufferOffset, double[] output) {
-        if (buffer == output && bufferOffset == line.oofs(0) && line.strideOut() == 1) {
+        int target = line.oofs(0);
+        int stride = line.strideOut();
+        int length = line.lengthOut();
+        if (buffer == output && bufferOffset == target && stride == 1) {
             return;
         }
-        if (line.strideOut() == 1) {
-            System.arraycopy(buffer, bufferOffset, output, line.oofs(0), line.lengthOut());
+        if (stride == 1) {
+            System.arraycopy(buffer, bufferOffset, output, target, length);
             return;
         }
-        for (int i = 0; i < line.lengthOut(); i++) {
-            output[line.oofs(i)] = buffer[bufferOffset + i];
+        int source = bufferOffset;
+        for (int i = 0; i < length; i++, source++, target += stride) {
+            output[target] = buffer[source];
         }
     }
 

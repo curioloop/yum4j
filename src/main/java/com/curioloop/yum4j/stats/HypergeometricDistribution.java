@@ -51,6 +51,32 @@ public value record HypergeometricDistribution(long defective, long sampleCount,
         return pdfAt(value);
     }
 
+    /**
+     * Direct-formula log-pmf:
+     * {@code logBinom(K, x) + logBinom(N-K, n-x) - logBinom(N, n)}
+     * where {@code K = defective, N = total, n = sampleCount}.
+     *
+     * <p>Avoids the {@code exp}/{@code log} round-trip in
+     * {@link #pdfAt(long)} (which already computes the log first).
+     */
+    @Override
+    public double logPdf(double x) {
+        validateX(x);
+        if (Double.isInfinite(x) || !isIntegralPoint(x)) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        long value = (long) x;
+        if (value < lowerSupport() || value > upperSupport()) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        if (total == 0L) {
+            return value == 0L ? 0.0 : Double.NEGATIVE_INFINITY;
+        }
+        return logBinomialCoefficient(defective, value)
+            + logBinomialCoefficient(total - defective, sampleCount - value)
+            - logBinomialCoefficient(total, sampleCount);
+    }
+
     @Override
     public double cdf(double x) {
         validateX(x);

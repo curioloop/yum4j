@@ -4,6 +4,8 @@ import com.curioloop.yum4j.math.Double2;
 
 import com.curioloop.yum4j.math.Gamma;
 
+import java.util.random.RandomGenerator;
+
 /** Boost-style inverse gamma distribution with shape and scale parameters. */
 public value record InverseGammaDistribution(double shape, double scale) implements ContinuousDistribution {
 
@@ -127,6 +129,83 @@ public value record InverseGammaDistribution(double shape, double scale) impleme
             throw new ArithmeticException("Kurtosis excess is undefined for shape <= 4: " + shape);
         }
         return (30.0 * shape - 66.0) / ((shape - 3.0) * (shape - 4.0));
+    }
+
+    // ---- Batch overrides --------------------------------------
+
+    /**
+     * Direct-formula log-pdf for InvGamma(alpha = shape, beta = scale):
+     * {@code alpha*log(beta) - lgamma(alpha) - (alpha + 1)*log(x) - beta/x}.
+     * Returns {@link Double#NEGATIVE_INFINITY} for {@code x <= 0}.
+     */
+    @Override
+    public double logPdf(double x) {
+        if (Double.isNaN(x)) {
+            throw new IllegalArgumentException("x must not be NaN");
+        }
+        if (!(x > 0.0)) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        double logConst = shape * Math.log(scale) - Gamma.lgamma(shape);
+        return logConst - (shape + 1.0) * Math.log(x) - scale / x;
+    }
+
+    @Override
+    public void batch(Metric metric, double[] x, int xOff, int xStride, int n,
+                            double[] out, int outOff) {
+        if (n == 0) return;
+        switch (metric) {
+            case LOG_PDF -> {
+                double logConst = shape * Math.log(scale) - Gamma.lgamma(shape);
+                double shapeP1 = shape + 1.0;
+                for (int i = 0; i < n; i++) {
+                    double v = x[xOff + i * xStride];
+                    if (v > 0.0) {
+                        out[outOff + i] = logConst - shapeP1 * Math.log(v) - scale / v;
+                    } else {
+                        out[outOff + i] = Double.NEGATIVE_INFINITY;
+                    }
+                }
+            }
+            case PDF -> {
+                double pdfConst = Math.pow(scale, shape) * Math.exp(-Gamma.lgamma(shape));
+                double negAlphaM1 = -(shape + 1.0);
+                double beta = scale;
+                for (int i = 0; i < n; i++) {
+                    double v = x[xOff + i * xStride];
+                    if (v > 0.0) {
+                        out[outOff + i] = pdfConst * Math.pow(v, negAlphaM1) * Math.exp(-beta / v);
+                    } else {
+                        out[outOff + i] = 0.0;
+                    }
+                }
+            }
+            default -> ContinuousDistribution.super.batch(metric, x, xOff, xStride, n, out, outOff);
+        }
+    }
+
+    // ---- Sampling overrides ---------------------------------------
+
+    /**
+     * If {@code Y ~ Gamma(shape, 1)} then {@code scale / Y ~ InvGamma(shape, scale)}.
+     */
+    @Override
+    public double sample(RandomGenerator g) {
+        return scale / Distribution.nextGamma(g, shape);
+    }
+
+    /**
+     * Batch: draw {@code n} Gamma(shape, 1) samples into {@code out},
+     * then overwrite with {@code scale / y}.
+     */
+    @Override
+    public void sample(RandomGenerator g, int n, double[] out, int off, int stride) {
+        if (n == 0) return;
+        Distribution.nextGamma(g, shape, n, out, off, stride);
+        for (int i = 0; i < n; i++) {
+            int idx = off + i * stride;
+            out[idx] = scale / out[idx];
+        }
     }
 
     private static void validateShape(double shape) {

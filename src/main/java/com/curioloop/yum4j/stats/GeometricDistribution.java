@@ -2,6 +2,8 @@ package com.curioloop.yum4j.stats;
 
 import com.curioloop.yum4j.math.Double2;
 
+import java.util.random.RandomGenerator;
+
 /** Boost-style geometric distribution for the number of failures before the first success. */
 public value record GeometricDistribution(double successFraction) implements DiscreteDistribution {
 
@@ -160,6 +162,80 @@ public value record GeometricDistribution(double successFraction) implements Dis
             throw new IllegalArgumentException(
                 "successFraction must be finite and in [0, 1]: " + successFraction
             );
+        }
+    }
+
+    @Override
+    public double logPdf(double x) {
+        if (Double.isNaN(x) || Double.isInfinite(x) || x < 0.0 || x != Math.rint(x)) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        long k = (long) x;
+        if (successFraction == 0.0) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        if (successFraction == 1.0) {
+            return k == 0L ? 0.0 : Double.NEGATIVE_INFINITY;
+        }
+        // k * log(1-p) + log(p)
+        return k * Math.log1p(-successFraction) + Math.log(successFraction);
+    }
+
+    @Override
+    public void batch(Metric metric, double[] x, int xOff, int xStride, int n, double[] out, int outOff) {
+        if (metric == Metric.LOG_PDF) {
+            if (n == 0) return;
+            final double logP = successFraction == 0.0 ? Double.NEGATIVE_INFINITY : Math.log(successFraction);
+            final double logQ = successFraction == 1.0 ? Double.NEGATIVE_INFINITY : Math.log1p(-successFraction);
+            for (int i = 0; i < n; i++) {
+                double v = x[xOff + i * xStride];
+                double r;
+                if (Double.isNaN(v) || Double.isInfinite(v) || v < 0.0 || v != Math.rint(v)) {
+                    r = Double.NEGATIVE_INFINITY;
+                } else if (successFraction == 0.0) {
+                    r = Double.NEGATIVE_INFINITY;
+                } else if (successFraction == 1.0) {
+                    r = v == 0.0 ? 0.0 : Double.NEGATIVE_INFINITY;
+                } else {
+                    long k = (long) v;
+                    r = k * logQ + logP;
+                }
+                out[outOff + i] = r;
+            }
+        } else {
+            DiscreteDistribution.super.batch(metric, x, xOff, xStride, n, out, outOff);
+        }
+    }
+
+    @Override
+    public double sample(RandomGenerator g) {
+        if (successFraction == 1.0) {
+            return 0.0;
+        }
+        if (successFraction == 0.0) {
+            return Double.POSITIVE_INFINITY;
+        }
+        // k = floor(log(1 - U) / log(1 - p));   U ~ U[0,1).
+        double u = g.nextDouble();
+        double k = Math.floor(Math.log1p(-u) / Math.log1p(-successFraction));
+        return k;
+    }
+
+    @Override
+    public void sample(RandomGenerator g, int n, double[] out, int off, int stride) {
+        if (n == 0) return;
+        if (successFraction == 1.0) {
+            for (int i = 0; i < n; i++) out[off + i * stride] = 0.0;
+            return;
+        }
+        if (successFraction == 0.0) {
+            for (int i = 0; i < n; i++) out[off + i * stride] = Double.POSITIVE_INFINITY;
+            return;
+        }
+        final double invLogQ = 1.0 / Math.log1p(-successFraction);
+        for (int i = 0; i < n; i++) {
+            double u = g.nextDouble();
+            out[off + i * stride] = Math.floor(Math.log1p(-u) * invLogQ);
         }
     }
 

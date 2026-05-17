@@ -1,0 +1,29 @@
+{
+  "_fixtureName": "dirac_basic",
+  "_configSha256": "42251793de00e7805fa4065922396c943cae45b7ef2fd56714f417eeb6e1dfbb",
+  "_referenceCommit": "f71e94a21a11c73b58e2d694775b1b1d379b8854",
+  "_generatedAt": "2026-05-12T09:59:01+00:00",
+  "_recordedRng": null,
+  "_config": {
+    "location": 1.25,
+    "xs": [
+      1.25,
+      1.250000001,
+      0.0,
+      -3.0
+    ]
+  },
+  "location": 1.25,
+  "xs": [
+    1.25,
+    1.250000001,
+    0.0,
+    -3.0
+  ],
+  "logPdf": [
+    0.0,
+    "-Infinity",
+    "-Infinity",
+    "-Infinity"
+  ]
+}

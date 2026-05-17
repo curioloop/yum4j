@@ -1,19 +1,21 @@
 package com.curioloop.yum4j.tsa.sarimax;
 
-import com.curioloop.yum4j.kalman.filter.FilterResult;
-import com.curioloop.yum4j.kalman.filter.FilterSpec;
-import com.curioloop.yum4j.kalman.filter.ZFilterResult;
-import com.curioloop.yum4j.kalman.init.StateInitialization;
-import com.curioloop.yum4j.kalman.mle.ComplexMLE;
-import com.curioloop.yum4j.kalman.mle.RealMLE;
-import com.curioloop.yum4j.kalman.model.StateSpaceModel;
-import com.curioloop.yum4j.kalman.smooth.SmootherResult;
-import com.curioloop.yum4j.kalman.smooth.SmootherSpec;
+import com.curioloop.yum4j.ssm.kalman.arena.DoubleArena;
+import com.curioloop.yum4j.ssm.kalman.arena.IntArena;
+import com.curioloop.yum4j.ssm.kalman.filter.FilterOptions;
+import com.curioloop.yum4j.ssm.kalman.filter.FilterResult;
+import com.curioloop.yum4j.ssm.kalman.filter.ZFilterResult;
+import com.curioloop.yum4j.ssm.kalman.init.InitialState;
+import com.curioloop.yum4j.ssm.kalman.mle.ComplexMLE;
+import com.curioloop.yum4j.ssm.kalman.mle.FixedParameterMLE;
+import com.curioloop.yum4j.ssm.kalman.mle.RealMLE;
+import com.curioloop.yum4j.ssm.kalman.model.KalmanSSM;
+import com.curioloop.yum4j.ssm.kalman.smooth.SmootherResult;
+import com.curioloop.yum4j.ssm.kalman.smooth.SmootherOptions;
 import com.curioloop.yum4j.linalg.blas.BLAS;
 import com.curioloop.yum4j.linalg.blas.cmplx.ZLAS;
 import com.curioloop.yum4j.linalg.mat.LU;
 import com.curioloop.yum4j.optim.NumericalGradient;
-import com.curioloop.yum4j.optim.Minimizer;
 import com.curioloop.yum4j.optim.Optimization;
 import com.curioloop.yum4j.optim.Univariate;
 
@@ -21,17 +23,26 @@ import java.util.Arrays;
 
 public final class SARIMAX {
 
-    private static final FilterSpec CONCENTRATED_LIKELIHOOD_SPEC = FilterSpec.full().without(
-        FilterSpec.Storage.PREDICTED_STATE,
-        FilterSpec.Storage.FILTERED_STATE,
-        FilterSpec.Storage.KALMAN_GAIN);
+    private static final FilterOptions CONCENTRATED_LIKELIHOOD_OPTIONS = FilterOptions.builder()
+        .drop(FilterOptions.Surface.PREDICTED_STATE,
+            FilterOptions.Surface.PREDICTED_STATE_COVARIANCE,
+            FilterOptions.Surface.PREDICTED_DIFFUSE_STATE_COVARIANCE,
+            FilterOptions.Surface.FILTERED_STATE,
+            FilterOptions.Surface.FILTERED_STATE_COVARIANCE,
+            FilterOptions.Surface.KALMAN_GAIN)
+        .build();
     private static final double[] UNIT_POLYNOMIAL = {1.0};
+    private static final double[] UNIT_COMPLEX_POLYNOMIAL = {1.0, 0.0};
+    private static final double[] EMPTY_COMPLEX_ARRAY = new double[0];
+    private static final double DEFAULT_STATE_REGRESSION_APPROXIMATE_DIFFUSE_VARIANCE = 1e10;
 
     private final SARIMAXSpec spec;
     private final SARIMAXSupport.Meta meta;
     private final ParameterLayout parameterLayout;
-    private final ThreadLocal<SARIMAXSupport.StationaryTransformWorkspace> stationaryTransformWorkspace;
-    private final ThreadLocal<RealUpdateWorkspace> realUpdateWorkspace;
+    private final InitialState initialization;
+    private final SARIMAXSupport.StationaryTransformWorkspace transformWorkspace = new SARIMAXSupport.StationaryTransformWorkspace();
+    private final PhaseWorkspace phaseWorkspace = new PhaseWorkspace();
+    private final AnalyticComplexWorkspace analyticComplexWorkspace = new AnalyticComplexWorkspace();
     private final RealDelegate realDelegate;
     private final ComplexDelegate complexDelegate;
 
@@ -43,8 +54,7 @@ public final class SARIMAX {
         this.spec = spec;
         this.meta = meta;
         this.parameterLayout = ParameterLayout.of(meta);
-        this.stationaryTransformWorkspace = ThreadLocal.withInitial(SARIMAXSupport.StationaryTransformWorkspace::new);
-        this.realUpdateWorkspace = ThreadLocal.withInitial(RealUpdateWorkspace::new);
+        this.initialization = buildInitialization();
         this.realDelegate = new RealDelegate();
         this.complexDelegate = new ComplexDelegate();
     }
@@ -63,6 +73,14 @@ public final class SARIMAX {
 
     public double[] startParams() {
         return realDelegate.startParams();
+    }
+
+    public void trimWorkspaces() {
+        realDelegate.trimDelegateWorkspace();
+        complexDelegate.trimDelegateWorkspace();
+        transformWorkspace.release();
+        phaseWorkspace.release();
+        analyticComplexWorkspace.release();
     }
 
     public boolean complex() {
@@ -97,32 +115,40 @@ public final class SARIMAX {
         return realDelegate.logLikelihood(params);
     }
 
+    public double logLikelihood(double[] params, FilterOptions filterOptions) {
+        return realDelegate.logLikelihood(params, filterOptions);
+    }
+
     public double[] logLikelihoodObs(double[] params) {
         return realDelegate.logLikelihoodObs(params);
+    }
+
+    public double[] logLikelihoodObs(double[] params, FilterOptions filterOptions) {
+        return realDelegate.logLikelihoodObs(params, filterOptions);
     }
 
     public FilterResult filter(double[] params) {
         return realDelegate.filter(params);
     }
 
-    public FilterResult filter(double[] params, FilterSpec filterSpec) {
-        return realDelegate.filter(params, filterSpec);
+    public FilterResult filter(double[] params, FilterOptions filterOptions) {
+        return realDelegate.filter(params, filterOptions);
     }
 
     public SmootherResult smooth(double[] params) {
         return realDelegate.smooth(params);
     }
 
-    public SmootherResult smooth(double[] params, SmootherSpec smootherSpec) {
-        return realDelegate.smooth(params, smootherSpec);
+    public SmootherResult smooth(double[] params, SmootherOptions smootherOptions) {
+        return realDelegate.smooth(params, smootherOptions);
     }
 
     public FilterResult predict(double[] params) {
         return realDelegate.predict(params);
     }
 
-    public FilterResult predict(double[] params, FilterSpec filterSpec) {
-        return realDelegate.predict(params, filterSpec);
+    public FilterResult predict(double[] params, FilterOptions filterOptions) {
+        return realDelegate.predict(params, filterOptions);
     }
 
     public double[] score(double[] params) {
@@ -185,44 +211,20 @@ public final class SARIMAX {
         return realDelegate.transformedObjective();
     }
 
-    public Optimization optimize() {
-        return realDelegate.optimize();
-    }
-
-    public Optimization optimize(Minimizer<?, ?, ?> optimizer) {
-        return realDelegate.optimize(optimizer);
-    }
-
-    public Optimization optimizeTransformed(double[] unconstrainedStartParams) {
-        return realDelegate.optimizeTransformed(unconstrainedStartParams);
-    }
-
-    public Optimization optimizeTransformed(double[] unconstrainedStartParams, Minimizer<?, ?, ?> optimizer) {
-        return realDelegate.optimizeTransformed(unconstrainedStartParams, optimizer);
-    }
-
-    public StateSpaceModel snapshotModel(double[] params) {
+    public KalmanSSM snapshotModel(double[] params) {
         return realDelegate.snapshotModel(params);
     }
 
-    StateSpaceModel snapshotComplexModel(double[] params) {
+    private KalmanSSM snapshotComplexModel(double[] params) {
         return complexDelegate.snapshotComplexModel(params);
     }
 
-    StateSpaceModel snapshotComplexModel(double[] params, int perturbIndex, double perturbStep) {
+    private KalmanSSM snapshotComplexModel(double[] params, int perturbIndex, double perturbStep) {
         return complexDelegate.snapshotComplexModel(params, perturbIndex, perturbStep);
     }
 
-    double complexLogLikelihood(double[] params) {
-        return complexDelegate.logLikelihood(params);
-    }
-
-    double[] complexLogLikelihoodObs(double[] params) {
-        return complexDelegate.logLikelihoodObs(params);
-    }
-
-    ZFilterResult filterComplex(double[] params, FilterSpec filterSpec) {
-        return complexDelegate.filter(params, filterSpec);
+    private KalmanSSM borrowedComplexModel(double[] params, int perturbIndex, double perturbStep) {
+        return complexDelegate.borrowedComplexModel(params, perturbIndex, perturbStep);
     }
 
     private double[] harveyObservedInformationMatrixSurface(double[] params) {
@@ -241,7 +243,7 @@ public final class SARIMAX {
             }
         }
 
-        FilterResult result = realDelegate.filter(params, FilterSpec.full());
+        FilterResult result = realDelegate.filter(params, FilterOptions.defaults());
         ForecastDerivativeSurfaces partials = forecastDerivativeSurfaces(params, result);
         if (partials == null) {
             return null;
@@ -319,21 +321,24 @@ public final class SARIMAX {
             return hessian;
         }
 
-        double[] steps = new double[paramCount];
+        phaseWorkspace.ensureParamCount(paramCount);
+        double[] steps = phaseWorkspace.steps;
+        double[] plus = phaseWorkspace.plusParams;
+        double[] minus = phaseWorkspace.minusParams;
         for (int i = 0; i < paramCount; i++) {
             steps[i] = approximateHessianStepSize(params[i]);
         }
 
         for (int i = 0; i < paramCount; i++) {
             for (int j = i; j < paramCount; j++) {
-                double[] plus = Arrays.copyOf(params, paramCount);
+                System.arraycopy(params, 0, plus, 0, paramCount);
                 plus[j] += steps[j];
                 double[] llfPlus = analyticComplexLogLikelihood(plus, i, steps[i]);
                 if (llfPlus == null) {
                     return null;
                 }
 
-                double[] minus = Arrays.copyOf(params, paramCount);
+                System.arraycopy(params, 0, minus, 0, paramCount);
                 minus[j] -= steps[j];
                 double[] llfMinus = analyticComplexLogLikelihood(minus, i, steps[i]);
                 if (llfMinus == null) {
@@ -358,20 +363,16 @@ public final class SARIMAX {
 
     private double[] analyticComplexStepHarveyInformationMatrix(double[] params) {
         int paramCount = params.length;
-        FilterResult baseline = realDelegate.filter(params, FilterSpec.full());
+        FilterResult baseline = realDelegate.filter(params, FilterOptions.defaults());
         int start = Math.max(Math.max(0, likelihoodBurnInternal(params, null)), baseline.nobsDiffuse);
         double[] forecastErrorPartials = new double[baseline.nobs * paramCount];
         double[] forecastVariancePartials = new double[baseline.nobs * paramCount];
 
         for (int paramIndex = 0; paramIndex < paramCount; paramIndex++) {
             double step = harveyDerivativeStepSize(params[paramIndex]);
-            ComplexForecastSurface surface = analyticComplexForecastSurface(params, paramIndex, step);
-            if (surface == null) {
+            if (!writeAnalyticComplexForecastPartials(params, paramIndex, step,
+                    forecastErrorPartials, forecastVariancePartials, paramCount, baseline.nobs)) {
                 return null;
-            }
-            for (int t = 0; t < baseline.nobs; t++) {
-                forecastErrorPartials[t * paramCount + paramIndex] = surface.forecastError()[t * 2 + 1] / step;
-                forecastVariancePartials[t * paramCount + paramIndex] = surface.forecastVariance()[t * 2 + 1] / step;
             }
         }
 
@@ -398,99 +399,26 @@ public final class SARIMAX {
         return information;
     }
 
-    private ComplexForecastSurface analyticComplexForecastSurface(double[] params, int perturbIndex, double perturbStep) {
-        StateSpaceModel model = snapshotComplexModel(params, perturbIndex, perturbStep);
-        AnalyticInitialization initialization = analyticInitialization(model);
-        if (initialization == null) {
-            return null;
+    private boolean writeAnalyticComplexForecastPartials(double[] params,
+                                                         int perturbIndex,
+                                                         double perturbStep,
+                                                         double[] forecastErrorPartials,
+                                                         double[] forecastVariancePartials,
+                                                         int paramCount,
+                                                         int nobs) {
+        AnalyticComplexWorkspace workspace = analyticComplexWorkspace;
+        workspace.ensureForecastSurface(nobs);
+        if (!runAnalyticComplexFilter(params, perturbIndex, perturbStep, workspace,
+                null, 0, 0,
+                null, null,
+                workspace.forecastError, workspace.forecastVariance)) {
+            return false;
         }
-
-        int nobs = model.observationCount();
-        int stateCount = model.stateCount();
-        int kPosdef = model.stateDisturbanceCount();
-        double[] state = Arrays.copyOf(initialization.state(), initialization.state().length);
-        double[] covariance = Arrays.copyOf(initialization.covariance(), initialization.covariance().length);
-        double[] forecastError = new double[nobs * 2];
-        double[] forecastVariance = new double[nobs * 2];
-        double[] dot = new double[2];
-
         for (int t = 0; t < nobs; t++) {
-            int designOffset = model.designOffset(t);
-            int obsInterceptOffset = model.obsInterceptOffset(t);
-            int obsCovOffset = model.obsCovOffset(t);
-            int transitionOffset = model.transitionOffset(t);
-            int stateInterceptOffset = model.stateInterceptOffset(t);
-            int selectionOffset = model.selectionOffset(t);
-            int stateCovOffset = model.stateCovarianceOffset(t);
-            int endogOffset = model.endogOffset(t);
-
-            boolean missing = model.isMissing(0, t) || Double.isNaN(model.endog[endogOffset]);
-            double[] filteredState = state;
-            double[] filteredCovariance = covariance;
-
-            if (!missing) {
-                double[] h = complexScalar(model.obsCov[obsCovOffset], model.obsCov[obsCovOffset + 1]);
-                double[] d = complexScalar(model.obsIntercept[obsInterceptOffset], model.obsIntercept[obsInterceptOffset + 1]);
-                double[] y = complexScalar(model.endog[endogOffset], model.endog[endogOffset + 1]);
-                ZLAS.zdotu(stateCount, model.design, designOffset >> 1, 1, state, 0, 1, dot);
-                double[] predictedObservation = complexScalar(dot[0], dot[1]);
-                double[] currentForecastError = complexSubtract(y, complexAdd(d, predictedObservation));
-                double[] gainNumerator = new double[stateCount * 2];
-                ZLAS.zgemv(BLAS.Trans.NoTrans, stateCount, stateCount, 1.0, 0.0,
-                    covariance, 0, stateCount,
-                    model.design, designOffset, 1,
-                    0.0, 0.0, gainNumerator, 0, 1);
-                ZLAS.zdotu(stateCount, model.design, designOffset >> 1, 1, gainNumerator, 0, 1, dot);
-                double[] currentForecastVariance = complexAdd(h, complexScalar(dot[0], dot[1]));
-                if (!isFiniteComplex(currentForecastVariance) || isNearZero(currentForecastVariance[0], currentForecastVariance[1])) {
-                    return null;
-                }
-                forecastError[t * 2] = currentForecastError[0];
-                forecastError[t * 2 + 1] = currentForecastError[1];
-                forecastVariance[t * 2] = currentForecastVariance[0];
-                forecastVariance[t * 2 + 1] = currentForecastVariance[1];
-
-                double[] forecastVarianceInv = reciprocalComplex(currentForecastVariance[0], currentForecastVariance[1]);
-                double[] kalmanGain = complexVectorScale(gainNumerator, forecastVarianceInv[0], forecastVarianceInv[1]);
-                filteredState = complexVectorAdd(state, complexVectorScale(kalmanGain, currentForecastError[0], currentForecastError[1]));
-                filteredCovariance = Arrays.copyOf(covariance, covariance.length);
-                ZLAS.zgeru(stateCount, stateCount, -forecastVarianceInv[0], -forecastVarianceInv[1],
-                    gainNumerator, 0, 1,
-                    gainNumerator, 0, 1,
-                    filteredCovariance, 0, stateCount);
-            }
-
-            state = new double[stateCount * 2];
-            System.arraycopy(model.stateIntercept, stateInterceptOffset, state, 0, stateCount * 2);
-            ZLAS.zgemv(BLAS.Trans.NoTrans, stateCount, stateCount, 1.0, 0.0,
-                model.transition, transitionOffset, model.transitionLeadingDimension(),
-                filteredState, 0, 1,
-                1.0, 0.0, state, 0, 1);
-            double[] transitionTimesCovariance = complexMatrixMultiply(
-                model.transition, transitionOffset >> 1, model.transitionLeadingDimension(),
-                filteredCovariance, 0, stateCount,
-                stateCount, stateCount, stateCount);
-            double[] predictedCovariance = new double[stateCount * stateCount * 2];
-            ZLAS.zgemm(BLAS.Trans.NoTrans, BLAS.Trans.Trans, stateCount, stateCount, stateCount,
-                1.0, 0.0, transitionTimesCovariance, 0, stateCount,
-                model.transition, transitionOffset >> 1, model.transitionLeadingDimension(),
-                0.0, 0.0, predictedCovariance, 0, stateCount);
-            if (kPosdef > 0) {
-                double[] selectedCovariance = complexMatrixMultiply(
-                    model.selection, selectionOffset >> 1, model.selectionLeadingDimension(),
-                    model.stateCov, stateCovOffset >> 1, model.stateCovarianceLeadingDimension(),
-                    stateCount, kPosdef, kPosdef);
-                double[] stateInnovation = new double[stateCount * stateCount * 2];
-                ZLAS.zgemm(BLAS.Trans.NoTrans, BLAS.Trans.Trans, stateCount, stateCount, kPosdef,
-                    1.0, 0.0, selectedCovariance, 0, kPosdef,
-                    model.selection, selectionOffset >> 1, model.selectionLeadingDimension(),
-                    0.0, 0.0, stateInnovation, 0, stateCount);
-                predictedCovariance = complexMatrixAdd(predictedCovariance, stateInnovation);
-            }
-            covariance = predictedCovariance;
+            forecastErrorPartials[t * paramCount + perturbIndex] = workspace.forecastError[t * 2 + 1] / perturbStep;
+            forecastVariancePartials[t * paramCount + perturbIndex] = workspace.forecastVariance[t * 2 + 1] / perturbStep;
         }
-
-        return new ComplexForecastSurface(forecastError, forecastVariance);
+        return true;
     }
 
     private ForecastDerivativeSurfaces forecastDerivativeSurfaces(double[] params, FilterResult baseline) {
@@ -504,7 +432,7 @@ public final class SARIMAX {
         for (int paramIndex = 0; paramIndex < paramCount; paramIndex++) {
             double step = harveyDerivativeStepSize(params[paramIndex]);
             perturbed[paramIndex] = params[paramIndex] + step;
-            FilterResult shifted = realDelegate.filter(perturbed, FilterSpec.full());
+            FilterResult shifted = realDelegate.filter(perturbed, FilterOptions.defaults());
             perturbed[paramIndex] = params[paramIndex];
 
             for (int t = 0; t < nobs; t++) {
@@ -552,50 +480,76 @@ public final class SARIMAX {
 
         for (int paramIndex = 0; paramIndex < paramCount; paramIndex++) {
             double step = complexStepSize(params[paramIndex]);
-            double[] logLikelihoodObs = analyticComplexLogLikelihoodObs(params, paramIndex, step);
-            if (logLikelihoodObs == null) {
+            if (!runAnalyticComplexFilter(params, paramIndex, step, analyticComplexWorkspace,
+                    scoreObs, paramCount, paramIndex,
+                    null, null,
+                    null, null)) {
                 return null;
-            }
-            for (int t = 0; t < nobs; t++) {
-                scoreObs[t * paramCount + paramIndex] = logLikelihoodObs[t * 2 + 1] / step;
             }
         }
         return scoreObs;
     }
 
-    double[] analyticComplexStepScoreObsForTesting(double[] params) {
-        return analyticComplexStepScoreObsOrNull(params);
-    }
-
-    double[] numericScoreObsForTesting(double[] params) {
-        return realDelegate.scoreObs(params);
-    }
-
     private double[] analyticComplexLogLikelihood(double[] params, int perturbIndex, double perturbStep) {
-        double[] logLikelihoodObs = analyticComplexLogLikelihoodObs(params, perturbIndex, perturbStep);
-        if (logLikelihoodObs == null) {
+        AnalyticComplexWorkspace workspace = analyticComplexWorkspace;
+        if (!runAnalyticComplexFilter(params, perturbIndex, perturbStep, workspace,
+                null, 0, 0,
+                null, workspace.logLikelihoodSum,
+                null, null)) {
             return null;
         }
-        return sumComplex(logLikelihoodObs);
+        return complexScalar(workspace.logLikelihoodSum[0], workspace.logLikelihoodSum[1]);
     }
 
-    private double[] analyticComplexLogLikelihoodObs(double[] params, int perturbIndex, double perturbStep) {
-        StateSpaceModel model = snapshotComplexModel(params, perturbIndex, perturbStep);
-        AnalyticInitialization initialization = analyticInitialization(model);
-        if (initialization == null) {
-            return null;
-        }
-
+    private boolean runAnalyticComplexFilter(double[] params,
+                                             int perturbIndex,
+                                             double perturbStep,
+                                             AnalyticComplexWorkspace workspace,
+                                             double[] scoreObs,
+                                             int scoreParamCount,
+                                             int scoreParamIndex,
+                                             double[] logLikelihoodObs,
+                                             double[] logLikelihoodSum,
+                                             double[] forecastErrorOut,
+                                             double[] forecastVarianceOut) {
+        KalmanSSM model = borrowedComplexModel(params, perturbIndex, perturbStep);
         int nobs = model.observationCount();
         int stateCount = model.stateCount();
         int kPosdef = model.stateDisturbanceCount();
-        int burn = Math.min(Math.max(0, likelihoodBurnInternal(params, model)), nobs);
+        int stateLength = stateCount * 2;
+        int covarianceLength = stateCount * stateCount * 2;
+        workspace.ensureFilter(stateCount, kPosdef);
+        if (!analyticInitializationInto(model, workspace)) {
+            return false;
+        }
 
-        double[] state = Arrays.copyOf(initialization.state(), initialization.state().length);
-        double[] covariance = Arrays.copyOf(initialization.covariance(), initialization.covariance().length);
-        double[] logLikelihoodObs = new double[nobs * 2];
-        double[] dot = new double[2];
+        if (logLikelihoodObs != null) {
+            Arrays.fill(logLikelihoodObs, 0, nobs * 2, 0.0);
+        }
+        if (logLikelihoodSum != null) {
+            logLikelihoodSum[0] = 0.0;
+            logLikelihoodSum[1] = 0.0;
+        }
+        if (forecastErrorOut != null) {
+            Arrays.fill(forecastErrorOut, 0, nobs * 2, 0.0);
+        }
+        if (forecastVarianceOut != null) {
+            Arrays.fill(forecastVarianceOut, 0, nobs * 2, 0.0);
+        }
+
+        boolean computeLikelihood = scoreObs != null || logLikelihoodObs != null || logLikelihoodSum != null;
+        int burn = computeLikelihood ? Math.min(Math.max(0, likelihoodBurnInternal(params, model)), nobs) : 0;
         double logTwoPi = Math.log(2.0 * Math.PI);
+        double[] state = workspace.state0;
+        double[] covariance = workspace.covariance0;
+        double[] nextState = workspace.state1;
+        double[] nextCovariance = workspace.covariance1;
+        double[] dot = workspace.dot;
+        double[] gainNumerator = workspace.gainNumerator;
+        double[] filteredStateWorkspace = workspace.filteredState;
+        double[] filteredCovarianceWorkspace = workspace.filteredCovariance;
+        double[] transitionTimesCovariance = workspace.transitionTimesCovariance;
+        double[] selectedCovariance = workspace.selectedCovariance;
 
         for (int t = 0; t < nobs; t++) {
             int designOffset = model.designOffset(t);
@@ -612,90 +566,135 @@ public final class SARIMAX {
             double[] filteredCovariance = covariance;
 
             if (!missing) {
-                double[] h = complexScalar(model.obsCov[obsCovOffset], model.obsCov[obsCovOffset + 1]);
-                double[] d = complexScalar(model.obsIntercept[obsInterceptOffset], model.obsIntercept[obsInterceptOffset + 1]);
-                double[] y = complexScalar(model.endog[endogOffset], model.endog[endogOffset + 1]);
                 ZLAS.zdotu(stateCount, model.design, designOffset >> 1, 1, state, 0, 1, dot);
-                double[] predictedObservation = complexScalar(dot[0], dot[1]);
-                double[] forecastError = complexSubtract(y, complexAdd(d, predictedObservation));
-                double[] gainNumerator = new double[stateCount * 2];
+                double forecastErrorRe = model.endog[endogOffset] - model.obsIntercept[obsInterceptOffset] - dot[0];
+                double forecastErrorIm = model.endog[endogOffset + 1] - model.obsIntercept[obsInterceptOffset + 1] - dot[1];
+
                 ZLAS.zgemv(BLAS.Trans.NoTrans, stateCount, stateCount, 1.0, 0.0,
                     covariance, 0, stateCount,
                     model.design, designOffset, 1,
                     0.0, 0.0, gainNumerator, 0, 1);
                 ZLAS.zdotu(stateCount, model.design, designOffset >> 1, 1, gainNumerator, 0, 1, dot);
-                double[] forecastVariance = complexAdd(h, complexScalar(dot[0], dot[1]));
-                if (!isFiniteComplex(forecastVariance) || isNearZero(forecastVariance[0], forecastVariance[1])) {
-                    return null;
+                double forecastVarianceRe = model.obsCov[obsCovOffset] + dot[0];
+                double forecastVarianceIm = model.obsCov[obsCovOffset + 1] + dot[1];
+                if (!Double.isFinite(forecastVarianceRe)
+                        || !Double.isFinite(forecastVarianceIm)
+                        || isNearZero(forecastVarianceRe, forecastVarianceIm)) {
+                    return false;
                 }
-                double[] forecastVarianceInv = reciprocalComplex(forecastVariance[0], forecastVariance[1]);
-                double[] kalmanGain = complexVectorScale(gainNumerator, forecastVarianceInv[0], forecastVarianceInv[1]);
-                filteredState = complexVectorAdd(state, complexVectorScale(kalmanGain, forecastError[0], forecastError[1]));
-                filteredCovariance = Arrays.copyOf(covariance, covariance.length);
-                ZLAS.zgeru(stateCount, stateCount, -forecastVarianceInv[0], -forecastVarianceInv[1],
-                    gainNumerator, 0, 1,
-                    gainNumerator, 0, 1,
-                    filteredCovariance, 0, stateCount);
 
-                double[] quadratic = complexMultiply(forecastError, complexMultiply(forecastError, forecastVarianceInv));
-                double[] logLikelihood = complexScale(
-                    complexAdd(
-                        complexScalar(logTwoPi, 0.0),
-                        complexAdd(logComplex(forecastVariance[0], forecastVariance[1]), quadratic)),
-                    -0.5);
-                if (t >= burn) {
-                    logLikelihoodObs[t * 2] = logLikelihood[0];
-                    logLikelihoodObs[t * 2 + 1] = logLikelihood[1];
+                if (forecastErrorOut != null) {
+                    int offset = t * 2;
+                    forecastErrorOut[offset] = forecastErrorRe;
+                    forecastErrorOut[offset + 1] = forecastErrorIm;
+                    forecastVarianceOut[offset] = forecastVarianceRe;
+                    forecastVarianceOut[offset + 1] = forecastVarianceIm;
+                }
+
+                double denom = forecastVarianceRe * forecastVarianceRe + forecastVarianceIm * forecastVarianceIm;
+                if (!(denom > 0.0) || !Double.isFinite(denom)) {
+                    return false;
+                }
+                double inverseForecastVarianceRe = forecastVarianceRe / denom;
+                double inverseForecastVarianceIm = -forecastVarianceIm / denom;
+                double updateScaleRe = inverseForecastVarianceRe * forecastErrorRe - inverseForecastVarianceIm * forecastErrorIm;
+                double updateScaleIm = inverseForecastVarianceRe * forecastErrorIm + inverseForecastVarianceIm * forecastErrorRe;
+
+                System.arraycopy(state, 0, filteredStateWorkspace, 0, stateLength);
+                ZLAS.zaxpy(stateCount, updateScaleRe, updateScaleIm,
+                    gainNumerator, 0, 1,
+                    filteredStateWorkspace, 0, 1);
+                filteredState = filteredStateWorkspace;
+
+                System.arraycopy(covariance, 0, filteredCovarianceWorkspace, 0, covarianceLength);
+                ZLAS.zgeru(stateCount, stateCount, -inverseForecastVarianceRe, -inverseForecastVarianceIm,
+                    gainNumerator, 0, 1,
+                    gainNumerator, 0, 1,
+                    filteredCovarianceWorkspace, 0, stateCount);
+                filteredCovariance = filteredCovarianceWorkspace;
+
+                if (computeLikelihood && t >= burn) {
+                    double forecastErrorSquareRe = forecastErrorRe * forecastErrorRe - forecastErrorIm * forecastErrorIm;
+                    double forecastErrorSquareIm = 2.0 * forecastErrorRe * forecastErrorIm;
+                    double quadraticRe = forecastErrorSquareRe * inverseForecastVarianceRe
+                        - forecastErrorSquareIm * inverseForecastVarianceIm;
+                    double quadraticIm = forecastErrorSquareRe * inverseForecastVarianceIm
+                        + forecastErrorSquareIm * inverseForecastVarianceRe;
+                    double magnitudeSquared = forecastVarianceRe * forecastVarianceRe + forecastVarianceIm * forecastVarianceIm;
+                    if (!(magnitudeSquared > 0.0) || !Double.isFinite(magnitudeSquared)) {
+                        return false;
+                    }
+                    double logLikelihoodRe = -0.5 * (logTwoPi + 0.5 * Math.log(magnitudeSquared) + quadraticRe);
+                    double logLikelihoodIm = -0.5 * (Math.atan2(forecastVarianceIm, forecastVarianceRe) + quadraticIm);
+                    if (scoreObs != null) {
+                        scoreObs[t * scoreParamCount + scoreParamIndex] = logLikelihoodIm / perturbStep;
+                    }
+                    if (logLikelihoodObs != null) {
+                        int offset = t * 2;
+                        logLikelihoodObs[offset] = logLikelihoodRe;
+                        logLikelihoodObs[offset + 1] = logLikelihoodIm;
+                    }
+                    if (logLikelihoodSum != null) {
+                        logLikelihoodSum[0] += logLikelihoodRe;
+                        logLikelihoodSum[1] += logLikelihoodIm;
+                    }
                 }
             }
 
-            state = new double[stateCount * 2];
-            System.arraycopy(model.stateIntercept, stateInterceptOffset, state, 0, stateCount * 2);
+            System.arraycopy(model.stateIntercept, stateInterceptOffset, nextState, 0, stateLength);
             ZLAS.zgemv(BLAS.Trans.NoTrans, stateCount, stateCount, 1.0, 0.0,
                 model.transition, transitionOffset, model.transitionLeadingDimension(),
                 filteredState, 0, 1,
-                1.0, 0.0, state, 0, 1);
-            double[] transitionTimesCovariance = complexMatrixMultiply(
+                1.0, 0.0, nextState, 0, 1);
+            complexMatrixMultiplyInto(
                 model.transition, transitionOffset >> 1, model.transitionLeadingDimension(),
                 filteredCovariance, 0, stateCount,
-                stateCount, stateCount, stateCount);
-            double[] predictedCovariance = new double[stateCount * stateCount * 2];
+                stateCount, stateCount, stateCount,
+                transitionTimesCovariance, 0, stateCount,
+                0.0, 0.0);
             ZLAS.zgemm(BLAS.Trans.NoTrans, BLAS.Trans.Trans, stateCount, stateCount, stateCount,
                 1.0, 0.0, transitionTimesCovariance, 0, stateCount,
                 model.transition, transitionOffset >> 1, model.transitionLeadingDimension(),
-                0.0, 0.0, predictedCovariance, 0, stateCount);
+                0.0, 0.0, nextCovariance, 0, stateCount);
             if (kPosdef > 0) {
-                double[] selectedCovariance = complexMatrixMultiply(
+                complexMatrixMultiplyInto(
                     model.selection, selectionOffset >> 1, model.selectionLeadingDimension(),
                     model.stateCov, stateCovOffset >> 1, model.stateCovarianceLeadingDimension(),
-                    stateCount, kPosdef, kPosdef);
-                double[] stateInnovation = new double[stateCount * stateCount * 2];
+                    stateCount, kPosdef, kPosdef,
+                    selectedCovariance, 0, kPosdef,
+                    0.0, 0.0);
                 ZLAS.zgemm(BLAS.Trans.NoTrans, BLAS.Trans.Trans, stateCount, stateCount, kPosdef,
                     1.0, 0.0, selectedCovariance, 0, kPosdef,
                     model.selection, selectionOffset >> 1, model.selectionLeadingDimension(),
-                    0.0, 0.0, stateInnovation, 0, stateCount);
-                predictedCovariance = complexMatrixAdd(predictedCovariance, stateInnovation);
+                    1.0, 0.0, nextCovariance, 0, stateCount);
             }
-            covariance = predictedCovariance;
-        }
 
-        return logLikelihoodObs;
+            double[] stateSwap = state;
+            state = nextState;
+            nextState = stateSwap;
+            double[] covarianceSwap = covariance;
+            covariance = nextCovariance;
+            nextCovariance = covarianceSwap;
+        }
+        return true;
     }
 
-    private AnalyticInitialization analyticInitialization(StateSpaceModel model) {
+    private boolean analyticInitializationInto(KalmanSSM model, AnalyticComplexWorkspace workspace) {
         if (spec.hasOption(SARIMAXOption.USE_EXACT_DIFFUSE)) {
-            return null;
+            return false;
         }
 
         int stateCount = model.stateCount();
-        double[] state = new double[stateCount * 2];
-        double[] covariance = new double[stateCount * stateCount * 2];
+        double[] state = workspace.state0;
+        double[] covariance = workspace.covariance0;
+        Arrays.fill(state, 0, stateCount * 2, 0.0);
+        Arrays.fill(covariance, 0, stateCount * stateCount * 2, 0.0);
 
         boolean approximateDiffuseOnly = spec.hasApproximateDiffuseVariance()
             && !spec.hasOption(SARIMAXOption.USE_EXACT_DIFFUSE);
         if (!spec.hasOption(SARIMAXOption.ENFORCE_STATIONARITY) || approximateDiffuseOnly) {
             fillComplexDiagonal(covariance, 0, stateCount, stateCount, spec.approximateDiffuseVariance());
-            return new AnalyticInitialization(state, covariance);
+            return true;
         }
 
         if (meta.totalDiff() > 0) {
@@ -707,72 +706,93 @@ public final class SARIMAX {
             ? stateCount
             : meta.totalOrder();
         if (stationaryDimension > 0
-                && !solveAnalyticStationaryBlock(model, stationaryStart, stationaryDimension, state, covariance)) {
-            return null;
+                && !solveAnalyticStationaryBlockInto(model, stationaryStart, stationaryDimension, state, covariance, workspace)) {
+            return false;
         }
 
         if (meta.stateRegression()) {
             int regressionStart = meta.totalDiff() + meta.totalOrder();
-            fillComplexDiagonal(covariance, regressionStart, stateCount, stateCount - regressionStart, spec.approximateDiffuseVariance());
+            fillComplexDiagonal(covariance, regressionStart, stateCount, stateCount - regressionStart,
+                stateRegressionApproximateDiffuseVariance());
         }
-        return new AnalyticInitialization(state, covariance);
+        return true;
     }
 
-    private boolean solveAnalyticStationaryBlock(StateSpaceModel model,
-                                                 int startState,
-                                                 int blockDimension,
-                                                 double[] targetState,
-                                                 double[] targetCovariance) {
-        double[] transition = copyComplexSquareBlock(
+    private boolean solveAnalyticStationaryBlockInto(KalmanSSM model,
+                                                     int startState,
+                                                     int blockDimension,
+                                                     double[] targetState,
+                                                     double[] targetCovariance,
+                                                     AnalyticComplexWorkspace workspace) {
+        int kPosdef = model.stateDisturbanceCount();
+        workspace.ensureStationary(blockDimension, kPosdef);
+        copyComplexSquareBlockInto(
             model.transition,
             model.transitionOffset(0),
             model.transitionLeadingDimension(),
             startState,
-            blockDimension);
-        double[] stateIntercept = copyComplexVectorBlock(
+            blockDimension,
+            workspace.stationaryTransition);
+        copyComplexVectorBlockInto(
             model.stateIntercept,
             model.stateInterceptOffset(0),
             startState,
-            blockDimension);
-        double[] selection = copyComplexRectangularBlock(
+            blockDimension,
+            workspace.stationaryStateIntercept);
+        copyComplexRectangularBlockInto(
             model.selection,
             model.selectionOffset(0),
             model.selectionLeadingDimension(),
             startState,
             blockDimension,
-            model.stateDisturbanceCount());
-        double[] stateCovariance = copyComplexSquareBlock(
+            kPosdef,
+            workspace.stationarySelection);
+        copyComplexSquareBlockInto(
             model.stateCov,
             model.stateCovarianceOffset(0),
             model.stateCovarianceLeadingDimension(),
             0,
-            model.stateDisturbanceCount());
+            kPosdef,
+            workspace.stationaryStateCovariance);
 
-        double[] stationaryState = solveAnalyticStationaryMean(transition, stateIntercept, blockDimension);
-        double[] stationaryCovariance = solveAnalyticStationaryCovariance(
-            transition,
-            selection,
-            stateCovariance,
-            blockDimension,
-            model.stateDisturbanceCount());
-        if (stationaryState == null || stationaryCovariance == null
-                || !allFinite(stationaryState) || !allFinite(stationaryCovariance)) {
+        if (!solveAnalyticStationaryMeanInto(
+                workspace.stationaryTransition,
+                workspace.stationaryStateIntercept,
+                blockDimension,
+                workspace)) {
+            return false;
+        }
+        if (!solveAnalyticStationaryCovarianceInto(
+                workspace.stationaryTransition,
+                workspace.stationarySelection,
+                workspace.stationaryStateCovariance,
+                blockDimension,
+                kPosdef,
+                workspace)) {
+            return false;
+        }
+        int stationaryStateLength = blockDimension * 2;
+        int stationaryCovarianceLength = blockDimension * blockDimension * 2;
+        if (!allFinite(workspace.stationaryState, 0, stationaryStateLength)
+                || !allFinite(workspace.stationaryCovarianceVector, 0, stationaryCovarianceLength)) {
             return false;
         }
 
-        System.arraycopy(stationaryState, 0, targetState, startState * 2, stationaryState.length);
-        writeComplexSquareBlock(stationaryCovariance, blockDimension, targetCovariance, targetState.length / 2, startState);
+        System.arraycopy(workspace.stationaryState, 0, targetState, startState * 2, stationaryStateLength);
+        writeComplexSquareBlock(workspace.stationaryCovarianceVector, blockDimension,
+            targetCovariance, targetState.length / 2, startState);
         return true;
     }
 
-    private static double[] solveAnalyticStationaryMean(double[] transition,
-                                                        double[] stateIntercept,
-                                                        int dimension) {
+    private boolean solveAnalyticStationaryMeanInto(double[] transition,
+                                                    double[] stateIntercept,
+                                                    int dimension,
+                                                    AnalyticComplexWorkspace workspace) {
         if (dimension == 0) {
-            return new double[0];
+            return true;
         }
 
-        double[] system = new double[dimension * dimension * 2];
+        double[] system = workspace.stationaryMeanSystem;
         for (int row = 0; row < dimension; row++) {
             int rowOffset = row * dimension * 2;
             for (int col = 0; col < dimension; col++) {
@@ -783,31 +803,38 @@ public final class SARIMAX {
             system[rowOffset + row * 2] += 1.0;
         }
 
-        double[] solution = Arrays.copyOf(stateIntercept, stateIntercept.length);
-        return solveRealifiedComplexSystem(system, solution, dimension) ? solution : null;
+        System.arraycopy(stateIntercept, 0, workspace.stationaryState, 0, dimension * 2);
+        return solveRealifiedComplexSystemInto(system, workspace.stationaryState, dimension, workspace);
     }
 
-    private static double[] solveAnalyticStationaryCovariance(double[] transition,
-                                                              double[] selection,
-                                                              double[] stateCovariance,
-                                                              int dimension,
-                                                              int kPosdef) {
+    private boolean solveAnalyticStationaryCovarianceInto(double[] transition,
+                                                          double[] selection,
+                                                          double[] stateCovariance,
+                                                          int dimension,
+                                                          int kPosdef,
+                                                          AnalyticComplexWorkspace workspace) {
         if (dimension == 0) {
-            return new double[0];
+            return true;
         }
 
-        double[] rhs = new double[dimension * dimension * 2];
+        double[] rhs = workspace.stationaryCovarianceRhs;
+        Arrays.fill(rhs, 0, dimension * dimension * 2, 0.0);
         if (kPosdef > 0) {
-            double[] selected = complexMatrixMultiply(selection, stateCovariance, dimension, kPosdef, kPosdef);
+            complexMatrixMultiplyInto(selection, 0, kPosdef,
+                stateCovariance, 0, kPosdef,
+                dimension, kPosdef, kPosdef,
+                workspace.stationarySelectedCovariance, 0, kPosdef,
+                0.0, 0.0);
             ZLAS.zgemm(BLAS.Trans.NoTrans, BLAS.Trans.Trans, dimension, dimension, kPosdef,
-                1.0, 0.0, selected, 0, kPosdef,
+                1.0, 0.0, workspace.stationarySelectedCovariance, 0, kPosdef,
                 selection, 0, kPosdef,
                 0.0, 0.0, rhs, 0, dimension);
         }
 
         int systemDimension = dimension * dimension;
-        double[] system = new double[systemDimension * systemDimension * 2];
-        double[] vector = new double[systemDimension * 2];
+        double[] system = workspace.stationaryCovarianceSystem;
+        double[] vector = workspace.stationaryCovarianceVector;
+        Arrays.fill(system, 0, systemDimension * systemDimension * 2, 0.0);
         for (int row = 0; row < dimension; row++) {
             for (int col = 0; col < dimension; col++) {
                 int equation = row * dimension + col;
@@ -840,26 +867,22 @@ public final class SARIMAX {
             }
         }
 
-        if (!solveRealifiedComplexSystem(system, vector, systemDimension)) {
-            return null;
+        if (!solveRealifiedComplexSystemInto(system, vector, systemDimension, workspace)) {
+            return false;
         }
-
-        double[] covariance = new double[dimension * dimension * 2];
-        for (int row = 0; row < dimension; row++) {
-            int sourceOffset = row * dimension * 2;
-            int targetOffset = row * dimension * 2;
-            System.arraycopy(vector, sourceOffset, covariance, targetOffset, dimension * 2);
-        }
-        symmetrizeComplexTranspose(covariance, dimension);
-        return covariance;
+        symmetrizeComplexTranspose(vector, dimension);
+        return true;
     }
 
-    private static boolean solveRealifiedComplexSystem(double[] complexMatrix,
-                                                       double[] complexVector,
-                                                       int dimension) {
+    private boolean solveRealifiedComplexSystemInto(double[] complexMatrix,
+                                                   double[] complexVector,
+                                                   int dimension,
+                                                   AnalyticComplexWorkspace workspace) {
         int realDimension = dimension * 2;
-        double[] realMatrix = new double[realDimension * realDimension];
-        double[] realVector = new double[realDimension];
+        workspace.ensureRealifiedCapacity(realDimension);
+        double[] realMatrix = workspace.realifiedMatrix;
+        double[] realVector = workspace.realifiedVector;
+        int[] pivots = workspace.realifiedPivots;
         for (int row = 0; row < dimension; row++) {
             realVector[row] = complexVector[row * 2];
             realVector[dimension + row] = complexVector[row * 2 + 1];
@@ -874,7 +897,6 @@ public final class SARIMAX {
             }
         }
 
-        int[] pivots = new int[realDimension];
         if (BLAS.dgetrf(realDimension, realDimension, realMatrix, 0, realDimension, pivots, 0) != 0) {
             return false;
         }
@@ -883,53 +905,56 @@ public final class SARIMAX {
             complexVector[row * 2] = realVector[row];
             complexVector[row * 2 + 1] = realVector[dimension + row];
         }
-        return allFinite(realVector);
+        return allFinite(realVector, 0, realDimension);
     }
 
-    private static double[] copyComplexVectorBlock(double[] source,
+    private static void copyComplexVectorBlockInto(double[] source,
                                                    int offset,
                                                    int startState,
-                                                   int blockDimension) {
-        double[] values = new double[blockDimension * 2];
+                                                   int blockDimension,
+                                                   double[] target) {
+        int length = blockDimension * 2;
+        Arrays.fill(target, 0, length, 0.0);
         if (source != null) {
-            System.arraycopy(source, offset + startState * 2, values, 0, blockDimension * 2);
+            System.arraycopy(source, offset + startState * 2, target, 0, length);
         }
-        return values;
     }
 
-    private static double[] copyComplexRectangularBlock(double[] source,
+    private static void copyComplexRectangularBlockInto(double[] source,
                                                         int offset,
                                                         int leadingDimension,
                                                         int startRow,
                                                         int rows,
-                                                        int cols) {
-        double[] values = new double[rows * cols * 2];
+                                                        int cols,
+                                                        double[] target) {
+        int length = rows * cols * 2;
+        Arrays.fill(target, 0, length, 0.0);
         if (source == null) {
-            return values;
+            return;
         }
         for (int row = 0; row < rows; row++) {
             int sourceRow = offset + (startRow + row) * leadingDimension * 2;
             int targetRow = row * cols * 2;
-            System.arraycopy(source, sourceRow, values, targetRow, cols * 2);
+            System.arraycopy(source, sourceRow, target, targetRow, cols * 2);
         }
-        return values;
     }
 
-    private static double[] copyComplexSquareBlock(double[] source,
+    private static void copyComplexSquareBlockInto(double[] source,
                                                    int offset,
                                                    int leadingDimension,
                                                    int startState,
-                                                   int blockDimension) {
-        double[] values = new double[blockDimension * blockDimension * 2];
+                                                   int blockDimension,
+                                                   double[] target) {
+        int length = blockDimension * blockDimension * 2;
+        Arrays.fill(target, 0, length, 0.0);
         if (source == null) {
-            return values;
+            return;
         }
         for (int row = 0; row < blockDimension; row++) {
             int sourceRow = offset + (startState + row) * leadingDimension * 2 + startState * 2;
             int targetRow = row * blockDimension * 2;
-            System.arraycopy(source, sourceRow, values, targetRow, blockDimension * 2);
+            System.arraycopy(source, sourceRow, target, targetRow, blockDimension * 2);
         }
-        return values;
     }
 
     private static void writeComplexSquareBlock(double[] source,
@@ -975,30 +1000,52 @@ public final class SARIMAX {
         return fit(SARIMAXFitOptions.DEFAULT);
     }
 
-    public SARIMAXResults fit(Minimizer<?, ?, ?> optimizer) {
-        return fit(SARIMAXFitOptions.builder().optimizer(optimizer).build());
-    }
-
     public SARIMAXResults fit(SARIMAXFitOptions options) {
         SARIMAXFitOptions fitOptions = options == null ? SARIMAXFitOptions.DEFAULT : options;
-        Optimization optimization = realDelegate.optimize(fitOptions.optimizer());
+        double[] startParams = fitOptions.startParams() == null ? startParams() : fitOptions.startParams();
+        FixedParameterMLE.Result fit = FixedParameterMLE.optimize(new FixedParameterMLE.Model() {
+            @Override
+            public double[] transformParams(double[] unconstrainedParams) {
+                return SARIMAX.this.transformParams(unconstrainedParams);
+            }
 
-        double[] unconstrained = optimization.solution();
-        double[] params = transformParams(unconstrained);
-        FilterResult filterResult = filter(params, FilterSpec.full());
-        return new SARIMAXResults(
+            @Override
+            public double[] untransformParams(double[] params) {
+                return SARIMAX.this.untransformParams(params);
+            }
+
+            @Override
+            public double logLikelihood(double[] params) {
+                return SARIMAX.this.logLikelihood(params);
+            }
+        }, startParams, fitOptions.fixedParameters(), fitOptions.optimizer());
+
+        Optimization optimization = fit.optimization();
+        double[] unconstrained = fit.unconstrainedParams();
+        double[] params = fit.params();
+        FilterOptions resultOptions = spec.concentrateScale()
+            ? realConcentratedLikelihoodOptions(FilterOptions.defaults())
+            : FilterOptions.defaults();
+        FilterResult filterResult = filter(params, resultOptions);
+        return SARIMAXResults.adoptFilterResult(
             this,
             optimization,
             params,
             unconstrained,
             filterResult,
-            fitOptions.covarianceType());
+            fitOptions.covarianceType(),
+            fitOptions.fixedParameters());
     }
 
     SARIMAX extend(double[] endog, double[][] exog) {
+        return extend(endog, exog, spec.trendOffset());
+    }
+
+    SARIMAX extend(double[] endog, double[][] exog, int trendOffset) {
         SARIMAXSpec.Builder builder = SARIMAXSpec.builder(spec.order(), endog)
             .seasonalOrder(spec.seasonalOrder())
             .trendPowers(spec.trendPowers())
+            .trendOffset(trendOffset)
             .autoregressiveLags(spec.autoregressiveLags())
             .movingAverageLags(spec.movingAverageLags())
             .measurementError(spec.measurementError())
@@ -1031,28 +1078,32 @@ public final class SARIMAX {
             parameterLayout.arOffset(),
             parameterLayout.arLength(),
             spec.hasOption(SARIMAXOption.ENFORCE_STATIONARITY),
-            1.0);
+            1.0,
+            transformWorkspace);
         transformStationaryBlock(
             unconstrainedParams,
             constrained,
             parameterLayout.maOffset(),
             parameterLayout.maLength(),
             spec.hasOption(SARIMAXOption.ENFORCE_INVERTIBILITY),
-            -1.0);
+            -1.0,
+            transformWorkspace);
         transformStationaryBlock(
             unconstrainedParams,
             constrained,
             parameterLayout.seasonalArOffset(),
             parameterLayout.seasonalArLength(),
             spec.hasOption(SARIMAXOption.ENFORCE_STATIONARITY),
-            1.0);
+            1.0,
+            transformWorkspace);
         transformStationaryBlock(
             unconstrainedParams,
             constrained,
             parameterLayout.seasonalMaOffset(),
             parameterLayout.seasonalMaLength(),
             spec.hasOption(SARIMAXOption.ENFORCE_INVERTIBILITY),
-            -1.0);
+            -1.0,
+            transformWorkspace);
 
         if (parameterLayout.timeVaryingRegressionLength() > 0) {
             for (int index = 0; index < parameterLayout.timeVaryingRegressionLength(); index++) {
@@ -1084,28 +1135,32 @@ public final class SARIMAX {
             parameterLayout.arOffset(),
             parameterLayout.arLength(),
             spec.hasOption(SARIMAXOption.ENFORCE_STATIONARITY),
-            1.0);
+            1.0,
+            transformWorkspace);
         untransformStationaryBlock(
             params,
             unconstrained,
             parameterLayout.maOffset(),
             parameterLayout.maLength(),
             spec.hasOption(SARIMAXOption.ENFORCE_INVERTIBILITY),
-            -1.0);
+            -1.0,
+            transformWorkspace);
         untransformStationaryBlock(
             params,
             unconstrained,
             parameterLayout.seasonalArOffset(),
             parameterLayout.seasonalArLength(),
             spec.hasOption(SARIMAXOption.ENFORCE_STATIONARITY),
-            1.0);
+            1.0,
+            transformWorkspace);
         untransformStationaryBlock(
             params,
             unconstrained,
             parameterLayout.seasonalMaOffset(),
             parameterLayout.seasonalMaLength(),
             spec.hasOption(SARIMAXOption.ENFORCE_INVERTIBILITY),
-            -1.0);
+            -1.0,
+            transformWorkspace);
 
         if (parameterLayout.timeVaryingRegressionLength() > 0) {
             for (int index = 0; index < parameterLayout.timeVaryingRegressionLength(); index++) {
@@ -1129,12 +1184,15 @@ public final class SARIMAX {
     private double[] adjustLogLikelihoodObsInternal(FilterResult filterResult,
                                                     double[] logLikelihoodObs,
                                                     double[] params,
-                                                    StateSpaceModel model,
+                                                    KalmanSSM model,
                                                     int burn) {
         if (!spec.concentrateScale()) {
             return logLikelihoodObs;
         }
-        return concentratedLogLikelihoodObs(filterResult, logLikelihoodObs, concentratedScale(filterResult, burn));
+        if (filterResult.concentratedLikelihood()) {
+            return logLikelihoodObs;
+        }
+        return concentratedLogLikelihoodObs(filterResult, logLikelihoodObs, concentratedScale(filterResult, burn), burn);
     }
 
     private double adjustedLogLikelihoodInternal(FilterResult filterResult, int burn) {
@@ -1149,15 +1207,19 @@ public final class SARIMAX {
             }
             return sum;
         }
+        if (filterResult.concentratedLikelihood()) {
+            return logLikelihoodAfterBurn(filterResult, burn);
+        }
         double scale = concentratedScale(filterResult, burn);
         double logScale = Math.log(scale);
         double[] effectiveEndog = meta.endog();
         double sum = 0.0;
         int nobs = Math.min(filterResult.nobs, effectiveEndog.length);
+        int concentratedStart = Math.max(Math.max(0, burn), filterResult.nobsDiffuse);
         for (int t = Math.max(0, burn); t < nobs; t++) {
             double value = filterResult.logLikelihoodObs[filterResult.logLikelihoodObsOffset(t)];
             double forecastVariance = filterResult.forecastErrorCov(0, 0, t);
-            if (!Double.isNaN(effectiveEndog[t]) && forecastVariance > 0.0 && Double.isFinite(forecastVariance)) {
+            if (t >= concentratedStart && !Double.isNaN(effectiveEndog[t]) && forecastVariance > 0.0 && Double.isFinite(forecastVariance)) {
                 double error = filterResult.forecastError(0, t);
                 double scaleObs = error * error / forecastVariance;
                 value += -0.5 * (logScale + scaleObs / scale - scaleObs);
@@ -1167,12 +1229,15 @@ public final class SARIMAX {
         return sum;
     }
 
-    private void updateModelInternal(double[] params, StateSpaceModel model) {
+    private void updateModelInternal(double[] params, KalmanSSM model) {
+        updateModelInternal(params, model, new RealUpdateWorkspace());
+    }
+
+    private void updateModelInternal(double[] params, KalmanSSM model, RealUpdateWorkspace workspace) {
         ParameterLayout layout = parameterLayout;
         double measurementVariance = layout.hasMeasurementError() ? params[layout.measurementErrorOffset()] : 0.0;
         double variance = layout.hasScale() ? params[layout.scaleOffset()] : 1.0;
 
-        RealUpdateWorkspace workspace = realUpdateWorkspace.get();
         double[] reducedArPolynomial = UNIT_POLYNOMIAL;
         int reducedArLength = 1;
         if (meta.reducedArOrder() > 0) {
@@ -1249,56 +1314,82 @@ public final class SARIMAX {
         model.obsCov[model.obsCovOffset(0)] = spec.measurementError() ? Math.max(measurementVariance, 1e-8) : 0.0;
     }
 
-    private void updateModelComplexInternal(double[] params, int perturbIndex, double perturbStep, StateSpaceModel model) {
-        ParameterLayout layout = parameterLayout;
-        double[] trendParams = complexSlice(params, perturbIndex, perturbStep, layout.trendOffset(), layout.trendEnd());
-        double[] exogParams = meta.stateRegression()
-            ? new double[0]
-            : complexSlice(params, perturbIndex, perturbStep, layout.exogOffset(), layout.exogEnd());
-        double[] arParams = complexSlice(params, perturbIndex, perturbStep, layout.arOffset(), layout.arEnd());
-        double[] maParams = complexSlice(params, perturbIndex, perturbStep, layout.maOffset(), layout.maEnd());
-        double[] seasonalArParams = complexSlice(params, perturbIndex, perturbStep, layout.seasonalArOffset(), layout.seasonalArEnd());
-        double[] seasonalMaParams = complexSlice(params, perturbIndex, perturbStep, layout.seasonalMaOffset(), layout.seasonalMaEnd());
-        double[] exogVariances = meta.timeVaryingRegression()
-            ? complexSlice(params, perturbIndex, perturbStep, layout.timeVaryingRegressionOffset(), layout.timeVaryingRegressionEnd())
-            : new double[0];
-        double[] measurementVariance = spec.measurementError()
-            ? complexScalar(params[layout.measurementErrorOffset()], imaginaryStep(perturbIndex, layout.measurementErrorOffset(), perturbStep))
-            : complexScalar(0.0, 0.0);
-        double[] variance = spec.concentrateScale()
-            ? complexScalar(1.0, 0.0)
-            : complexScalar(params[layout.scaleOffset()], imaginaryStep(perturbIndex, layout.scaleOffset(), perturbStep));
+    private void updateModelComplexInternal(double[] params, int perturbIndex, double perturbStep, KalmanSSM model) {
+        updateModelComplexInternal(params, perturbIndex, perturbStep, model, new ComplexUpdateWorkspace());
+    }
 
-        double[] reducedArPolynomial = meta.reducedArOrder() > 0
-            ? multiplyComplex(
-                lagPolynomialComplex(arParams, spec.autoregressiveLags(), true),
-                lagPolynomialComplex(seasonalArParams, spec.seasonalAutoregressiveLags(), true))
-            : complexScalar(1.0, 0.0);
+    private void updateModelComplexInternal(double[] params,
+                                            int perturbIndex,
+                                            double perturbStep,
+                                            KalmanSSM model,
+                                            ComplexUpdateWorkspace workspace) {
+        ParameterLayout layout = parameterLayout;
+        double[] trendParams = complexSlice(workspace.trendParams, params, perturbIndex, perturbStep,
+            layout.trendOffset(), layout.trendEnd());
+        workspace.trendParams = trendParams;
+        double[] exogParams = meta.stateRegression()
+            ? EMPTY_COMPLEX_ARRAY
+            : complexSlice(workspace.exogParams, params, perturbIndex, perturbStep, layout.exogOffset(), layout.exogEnd());
+        workspace.exogParams = exogParams;
+        double[] arParams = complexSlice(workspace.arParams, params, perturbIndex, perturbStep, layout.arOffset(), layout.arEnd());
+        workspace.arParams = arParams;
+        double[] maParams = complexSlice(workspace.maParams, params, perturbIndex, perturbStep, layout.maOffset(), layout.maEnd());
+        workspace.maParams = maParams;
+        double[] seasonalArParams = complexSlice(workspace.seasonalArParams, params, perturbIndex, perturbStep,
+            layout.seasonalArOffset(), layout.seasonalArEnd());
+        workspace.seasonalArParams = seasonalArParams;
+        double[] seasonalMaParams = complexSlice(workspace.seasonalMaParams, params, perturbIndex, perturbStep,
+            layout.seasonalMaOffset(), layout.seasonalMaEnd());
+        workspace.seasonalMaParams = seasonalMaParams;
+        double[] exogVariances = meta.timeVaryingRegression()
+            ? complexSlice(workspace.exogVariances, params, perturbIndex, perturbStep,
+                layout.timeVaryingRegressionOffset(), layout.timeVaryingRegressionEnd())
+            : EMPTY_COMPLEX_ARRAY;
+        workspace.exogVariances = exogVariances;
+        double measurementVarianceRe = spec.measurementError() ? params[layout.measurementErrorOffset()] : 0.0;
+        double measurementVarianceIm = spec.measurementError()
+            ? imaginaryStep(perturbIndex, layout.measurementErrorOffset(), perturbStep)
+            : 0.0;
+        double varianceRe = spec.concentrateScale() ? 1.0 : params[layout.scaleOffset()];
+        double varianceIm = spec.concentrateScale() ? 0.0 : imaginaryStep(perturbIndex, layout.scaleOffset(), perturbStep);
+
+        double[] reducedArPolynomial = UNIT_COMPLEX_POLYNOMIAL;
+        int reducedArLength = 1;
+        if (meta.reducedArOrder() > 0) {
+            reducedArLength = buildReducedComplexPolynomial(
+                arParams,
+                spec.autoregressiveLags(),
+                seasonalArParams,
+                spec.seasonalAutoregressiveLags(),
+                true,
+                workspace);
+            reducedArPolynomial = workspace.product;
+        }
 
         if (meta.kExog() > 0 && !meta.stateRegression()) {
             for (int t = 0; t < meta.nobs(); t++) {
-                double[] obsIntercept = dotComplexReal(exogParams, meta.exog()[t]);
-                writeComplexScalar(model.obsIntercept, model.obsInterceptOffset(t), obsIntercept[0], obsIntercept[1]);
+                dotComplexReal(exogParams, meta.exog()[t], workspace.scalar0);
+                writeComplexScalar(model.obsIntercept, model.obsInterceptOffset(t), workspace.scalar0[0], workspace.scalar0[1]);
             }
         }
 
         if (meta.kTrend() > 0) {
-            double[] arScale = sumComplex(reducedArPolynomial);
-            if (isNearZero(arScale[0], arScale[1])) {
-                arScale[0] = 1.0;
-                arScale[1] = 0.0;
+            sumComplex(reducedArPolynomial, reducedArLength, workspace.scalar1);
+            if (isNearZero(workspace.scalar1[0], workspace.scalar1[1])) {
+                workspace.scalar1[0] = 1.0;
+                workspace.scalar1[1] = 0.0;
             }
             for (int t = 0; t < meta.nobs(); t++) {
-                double[] trendValue = dotComplexReal(trendParams, meta.trendData()[t]);
+                dotComplexReal(trendParams, meta.trendData()[t], workspace.scalar0);
                 if (spec.hamiltonRepresentation()) {
-                    double[] scaledTrend = divideComplex(trendValue[0], trendValue[1], arScale[0], arScale[1]);
-                    addComplexScalar(model.obsIntercept, model.obsInterceptOffset(t), scaledTrend[0], scaledTrend[1]);
+                    divideComplex(workspace.scalar0[0], workspace.scalar0[1], workspace.scalar1[0], workspace.scalar1[1], workspace.scalar2);
+                    addComplexScalar(model.obsIntercept, model.obsInterceptOffset(t), workspace.scalar2[0], workspace.scalar2[1]);
                 } else {
                     writeComplexScalar(
                         model.stateIntercept,
                         complexVectorOffset(model.stateInterceptOffset(t), meta.totalDiff()),
-                        trendValue[0],
-                        trendValue[1]);
+                        workspace.scalar0[0],
+                        workspace.scalar0[1]);
                 }
             }
         }
@@ -1306,7 +1397,7 @@ public final class SARIMAX {
         if (meta.reducedArOrder() > 0) {
             for (int t = 0; t < meta.nobs(); t++) {
                 int transitionBase = model.transitionOffset(t);
-                for (int i = 1; i < reducedArPolynomial.length / 2; i++) {
+                for (int i = 1; i < reducedArLength; i++) {
                     int row = spec.hamiltonRepresentation() ? meta.totalDiff() : meta.totalDiff() + i - 1;
                     int col = spec.hamiltonRepresentation() ? meta.totalDiff() + i - 1 : meta.totalDiff();
                     int off = complexMatrixOffset(transitionBase, meta.kStates(), row, col);
@@ -1316,11 +1407,16 @@ public final class SARIMAX {
         }
 
         if (meta.reducedMaOrder() > 0) {
-            double[] reducedMa = multiplyComplex(
-                lagPolynomialComplex(maParams, spec.movingAverageLags(), false),
-                lagPolynomialComplex(seasonalMaParams, spec.seasonalMovingAverageLags(), false));
+            int reducedMaLength = buildReducedComplexPolynomial(
+                maParams,
+                spec.movingAverageLags(),
+                seasonalMaParams,
+                spec.seasonalMovingAverageLags(),
+                false,
+                workspace);
+            double[] reducedMa = workspace.product;
             for (int t = 0; t < meta.nobs(); t++) {
-                for (int i = 1; i < reducedMa.length / 2; i++) {
+                for (int i = 1; i < reducedMaLength; i++) {
                     if (spec.hamiltonRepresentation()) {
                         int off = complexVectorOffset(model.designOffset(t), meta.totalDiff() + i);
                         writeComplexScalar(model.design, off, reducedMa[i * 2], reducedMa[i * 2 + 1]);
@@ -1334,60 +1430,111 @@ public final class SARIMAX {
         }
 
         if (meta.kPosdef() > 0) {
-            double[] stateVariance = spec.concentrateScale() ? complexScalar(1.0, 0.0) : positiveContinuation(variance[0], variance[1]);
+            positiveContinuation(varianceRe, varianceIm, workspace.scalar0);
+            double stateVarianceRe = spec.concentrateScale() ? 1.0 : workspace.scalar0[0];
+            double stateVarianceIm = spec.concentrateScale() ? 0.0 : workspace.scalar0[1];
             for (int t = 0; t < meta.nobs(); t++) {
                 int stateCovBase = model.stateCovarianceOffset(t);
-                writeComplexScalar(model.stateCov, stateCovBase, stateVariance[0], stateVariance[1]);
+                writeComplexScalar(model.stateCov, stateCovBase, stateVarianceRe, stateVarianceIm);
                 if (meta.timeVaryingRegression()) {
                     int diagonalOffset = meta.totalOrder() > 0 ? 1 : 0;
                     for (int index = 0; index < meta.kExog(); index++) {
                         int row = diagonalOffset + index;
                         int off = complexMatrixOffset(stateCovBase, meta.kPosdef(), row, row);
                         int complexIndex = index * 2;
-                        double[] exogVariance = positiveContinuation(exogVariances[complexIndex], exogVariances[complexIndex + 1]);
-                        writeComplexScalar(model.stateCov, off, exogVariance[0], exogVariance[1]);
+                        positiveContinuation(exogVariances[complexIndex], exogVariances[complexIndex + 1], workspace.scalar0);
+                        writeComplexScalar(model.stateCov, off, workspace.scalar0[0], workspace.scalar0[1]);
                     }
                 }
             }
         }
-        double[] observationVariance = spec.measurementError()
-            ? positiveContinuation(measurementVariance[0], measurementVariance[1])
-            : complexScalar(0.0, 0.0);
+        double observationVarianceRe = 0.0;
+        double observationVarianceIm = 0.0;
+        if (spec.measurementError()) {
+            positiveContinuation(measurementVarianceRe, measurementVarianceIm, workspace.scalar0);
+            observationVarianceRe = workspace.scalar0[0];
+            observationVarianceIm = workspace.scalar0[1];
+        }
         for (int t = 0; t < meta.nobs(); t++) {
-            writeComplexScalar(model.obsCov, model.obsCovOffset(t), observationVariance[0], observationVariance[1]);
+            writeComplexScalar(model.obsCov, model.obsCovOffset(t), observationVarianceRe, observationVarianceIm);
         }
     }
 
-    private StateInitialization initializationInternal(double[] params, StateSpaceModel model) {
+    private InitialState initializationInternal(double[] params, KalmanSSM model) {
+        return initialization;
+    }
+
+    private InitialState buildInitialization() {
         if (spec.hasOption(SARIMAXOption.ENFORCE_STATIONARITY) && meta.totalDiff() == 0 && !meta.stateRegression()) {
             if (spec.hasApproximateDiffuseVariance() && !spec.hasOption(SARIMAXOption.USE_EXACT_DIFFUSE)) {
-                return StateInitialization.approximateDiffuse(meta.kStates(), spec.approximateDiffuseVariance());
+                return InitialState.approximateDiffuse(meta.kStates(), spec.approximateDiffuseVariance());
             }
-            return StateInitialization.stationary(meta.kStates());
+            return InitialState.stationary(meta.kStates());
         }
-        StateInitialization diffuse = spec.hasOption(SARIMAXOption.USE_EXACT_DIFFUSE)
-            ? StateInitialization.diffuse()
-            : StateInitialization.approximateDiffuse(spec.approximateDiffuseVariance());
         if (spec.hasApproximateDiffuseVariance() && !spec.hasOption(SARIMAXOption.USE_EXACT_DIFFUSE)) {
-            return StateInitialization.approximateDiffuse(meta.kStates(), spec.approximateDiffuseVariance());
+            return InitialState.approximateDiffuse(meta.kStates(), spec.approximateDiffuseVariance());
         }
         if (!spec.hasOption(SARIMAXOption.ENFORCE_STATIONARITY)) {
             return spec.hasOption(SARIMAXOption.USE_EXACT_DIFFUSE)
-                ? StateInitialization.diffuse(meta.kStates())
-                : StateInitialization.approximateDiffuse(meta.kStates(), spec.approximateDiffuseVariance());
+                ? InitialState.diffuse(meta.kStates())
+                : InitialState.approximateDiffuse(meta.kStates(), spec.approximateDiffuseVariance());
         }
-        StateInitialization composite = new StateInitialization(meta.kStates());
+        InitialState.Builder composite = InitialState.builder(meta.kStates());
         if (meta.totalDiff() > 0) {
-            composite.set(0, meta.totalDiff(), diffuse);
+            addDiffuseBlock(composite, 0, meta.totalDiff());
         }
-        composite.set(meta.totalDiff(), meta.totalDiff() + meta.totalOrder(), StateInitialization.stationary(meta.totalOrder()));
+        composite.stationary(meta.totalDiff(), meta.totalDiff() + meta.totalOrder());
         if (meta.stateRegression()) {
-            composite.set(meta.totalDiff() + meta.totalOrder(), meta.kStates(), diffuse);
+            addDiffuseBlock(composite, meta.totalDiff() + meta.totalOrder(), meta.kStates());
         }
-        return composite;
+        return composite.build();
     }
 
-    private int likelihoodBurnInternal(double[] params, StateSpaceModel model) {
+    private void addDiffuseBlock(InitialState.Builder builder, int startInclusive, int endExclusive) {
+        if (spec.hasOption(SARIMAXOption.USE_EXACT_DIFFUSE)) {
+            builder.diffuse(startInclusive, endExclusive);
+        } else {
+            builder.approximateDiffuse(startInclusive, endExclusive, approximateDiffuseVariance(startInclusive));
+        }
+    }
+
+    private double approximateDiffuseVariance(int startInclusive) {
+        if (spec.hasApproximateDiffuseVariance()) {
+            return spec.approximateDiffuseVariance();
+        }
+        return meta.stateRegression() && startInclusive >= meta.totalDiff() + meta.totalOrder()
+            ? DEFAULT_STATE_REGRESSION_APPROXIMATE_DIFFUSE_VARIANCE
+            : spec.approximateDiffuseVariance();
+    }
+
+    private double stateRegressionApproximateDiffuseVariance() {
+        return spec.hasApproximateDiffuseVariance()
+            ? spec.approximateDiffuseVariance()
+            : DEFAULT_STATE_REGRESSION_APPROXIMATE_DIFFUSE_VARIANCE;
+    }
+
+    private static FilterOptions requireConcentratedLikelihoodSurfaces(FilterOptions options) {
+        return options.toBuilder()
+            .retain(FilterOptions.Surface.FORECAST_MEAN,
+                FilterOptions.Surface.FORECAST_ERROR,
+                FilterOptions.Surface.FORECAST_COVARIANCE,
+                FilterOptions.Surface.FORECAST_ERROR_DIFFUSE_COVARIANCE,
+                FilterOptions.Surface.LIKELIHOOD)
+            .build();
+    }
+
+    FilterOptions realConcentratedLikelihoodOptions(FilterOptions options) {
+        return requireConcentratedLikelihoodSurfaces(options)
+            .toBuilder()
+            .concentratedLikelihood(true)
+            .concentratedLikelihoodBurn(likelihoodBurn())
+            .build();
+    }
+
+    private int likelihoodBurnInternal(double[] params, KalmanSSM model) {
+        if (spec.hasLogLikelihoodBurn()) {
+            return spec.logLikelihoodBurn();
+        }
         if (spec.hasOption(SARIMAXOption.USE_EXACT_DIFFUSE)) {
             return 0;
         }
@@ -1403,6 +1550,9 @@ public final class SARIMAX {
     }
 
     double concentratedScale(FilterResult filterResult, int burn) {
+        if (filterResult.concentratedLikelihood()) {
+            return filterResult.scale();
+        }
         int start = Math.max(Math.max(0, burn), filterResult.nobsDiffuse);
         int observedCount = 0;
         double scaleSum = 0.0;
@@ -1427,13 +1577,26 @@ public final class SARIMAX {
         if (!spec.concentrateScale()) {
             return;
         }
-        double[] adjusted = concentratedLogLikelihoodObs(filterResult, filterResult.logLikelihoodObs, scale);
+        if (filterResult.concentratedLikelihood()) {
+            return;
+        }
+        double[] adjusted = concentratedLogLikelihoodObs(filterResult, filterResult.logLikelihoodObs, scale, 0);
         System.arraycopy(adjusted, 0, filterResult.logLikelihoodObs, 0, adjusted.length);
         scaleSurface(filterResult.predictedStateCov, scale);
         scaleSurface(filterResult.filteredStateCov, scale);
         scaleSurface(filterResult.forecastErrorCov, scale);
-        scaleSurface(filterResult.predictedDiffuseStateCov, scale);
-        scaleSurface(filterResult.forecastErrorDiffuseCov, scale);
+    }
+
+    private static double logLikelihoodAfterBurn(FilterResult filterResult, int burn) {
+        int start = Math.max(0, burn);
+        if (start == 0) {
+            return filterResult.logLikelihood();
+        }
+        double sum = 0.0;
+        for (int t = Math.min(start, filterResult.nobs); t < filterResult.nobs; t++) {
+            sum += filterResult.logLikelihoodObs[filterResult.logLikelihoodObsOffset(t)];
+        }
+        return sum;
     }
 
     int diffuseStateCount() {
@@ -1473,7 +1636,8 @@ public final class SARIMAX {
                                           int offset,
                                           int length,
                                           boolean transform,
-                                          double sign) {
+                                          double sign,
+                                          SARIMAXSupport.StationaryTransformWorkspace workspace) {
         if (length == 0) {
             return;
         }
@@ -1485,7 +1649,7 @@ public final class SARIMAX {
                 length,
                 target,
                 offset,
-                stationaryTransformWorkspace.get());
+                workspace);
         } else {
             System.arraycopy(source, offset, target, offset, length);
         }
@@ -1496,7 +1660,8 @@ public final class SARIMAX {
                                             int offset,
                                             int length,
                                             boolean transform,
-                                            double sign) {
+                                            double sign,
+                                            SARIMAXSupport.StationaryTransformWorkspace workspace) {
         if (length == 0) {
             return;
         }
@@ -1508,7 +1673,7 @@ public final class SARIMAX {
                 length,
                 target,
                 offset,
-                stationaryTransformWorkspace.get());
+                workspace);
         } else {
             System.arraycopy(source, offset, target, offset, length);
         }
@@ -1531,6 +1696,22 @@ public final class SARIMAX {
         return productLength;
     }
 
+    private static int buildReducedComplexPolynomial(double[] leftParams,
+                                                     int[] leftLags,
+                                                     double[] rightParams,
+                                                     int[] rightLags,
+                                                     boolean autoregressive,
+                                                     ComplexUpdateWorkspace workspace) {
+        int leftLength = lagPolynomialLength(leftLags);
+        int rightLength = lagPolynomialLength(rightLags);
+        int productLength = leftLength + rightLength - 1;
+        workspace.ensurePolynomialCapacity(leftLength, rightLength, productLength);
+        buildLagPolynomialComplex(leftParams, leftLags, autoregressive, workspace.leftPolynomial, leftLength);
+        buildLagPolynomialComplex(rightParams, rightLags, autoregressive, workspace.rightPolynomial, rightLength);
+        multiplyComplex(workspace.leftPolynomial, leftLength, workspace.rightPolynomial, rightLength, workspace.product, productLength);
+        return productLength;
+    }
+
     private static void buildLagPolynomial(double[] params,
                                            int paramOffset,
                                            int[] lags,
@@ -1541,6 +1722,21 @@ public final class SARIMAX {
         polynomial[0] = 1.0;
         for (int i = 0; i < lags.length; i++) {
             polynomial[lags[i]] = autoregressive ? -params[paramOffset + i] : params[paramOffset + i];
+        }
+    }
+
+    private static void buildLagPolynomialComplex(double[] params,
+                                                  int[] lags,
+                                                  boolean autoregressive,
+                                                  double[] polynomial,
+                                                  int length) {
+        Arrays.fill(polynomial, 0, length * 2, 0.0);
+        polynomial[0] = 1.0;
+        for (int i = 0; i < lags.length; i++) {
+            int off = lags[i] * 2;
+            int paramOffset = i * 2;
+            polynomial[off] = autoregressive ? -params[paramOffset] : params[paramOffset];
+            polynomial[off + 1] = autoregressive ? -params[paramOffset + 1] : params[paramOffset + 1];
         }
     }
 
@@ -1558,16 +1754,40 @@ public final class SARIMAX {
         }
     }
 
+    private static void multiplyComplex(double[] left,
+                                        int leftLength,
+                                        double[] right,
+                                        int rightLength,
+                                        double[] product,
+                                        int productLength) {
+        Arrays.fill(product, 0, productLength * 2, 0.0);
+        for (int i = 0; i < leftLength; i++) {
+            double leftRe = left[i * 2];
+            double leftIm = left[i * 2 + 1];
+            for (int j = 0; j < rightLength; j++) {
+                double rightRe = right[j * 2];
+                double rightIm = right[j * 2 + 1];
+                int off = (i + j) * 2;
+                product[off] += leftRe * rightRe - leftIm * rightIm;
+                product[off + 1] += leftRe * rightIm + leftIm * rightRe;
+            }
+        }
+    }
+
     private static int lagPolynomialLength(int[] lags) {
         return lags.length == 0 ? 1 : lags[lags.length - 1] + 1;
     }
 
-    private double[] concentratedLogLikelihoodObs(FilterResult filterResult, double[] logLikelihoodObs, double scale) {
+    private double[] concentratedLogLikelihoodObs(FilterResult filterResult,
+                                                  double[] logLikelihoodObs,
+                                                  double scale,
+                                                  int burn) {
         double[] adjusted = Arrays.copyOf(logLikelihoodObs, logLikelihoodObs.length);
         double[] effectiveEndog = meta.endog();
         double logScale = Math.log(scale);
         int nobs = Math.min(adjusted.length, effectiveEndog.length);
-        for (int t = 0; t < nobs; t++) {
+        int start = Math.max(Math.max(0, burn), filterResult.nobsDiffuse);
+        for (int t = start; t < nobs; t++) {
             double forecastVariance = filterResult.forecastErrorCov(0, 0, t);
             if (Double.isNaN(effectiveEndog[t]) || !(forecastVariance > 0.0) || !Double.isFinite(forecastVariance)) {
                 continue;
@@ -1603,12 +1823,16 @@ public final class SARIMAX {
         return Math.max(scaleSum / observedCount, 1e-8);
     }
 
-    private double[] concentratedLogLikelihoodObs(ZFilterResult filterResult, double[] logLikelihoodObs, double scale) {
+    private double[] concentratedLogLikelihoodObs(ZFilterResult filterResult,
+                                                  double[] logLikelihoodObs,
+                                                  double scale,
+                                                  int burn) {
         double[] adjusted = Arrays.copyOf(logLikelihoodObs, logLikelihoodObs.length);
         double[] effectiveEndog = meta.endog();
         double logScale = Math.log(scale);
         int nobs = Math.min(adjusted.length, effectiveEndog.length);
-        for (int t = 0; t < nobs; t++) {
+        int start = Math.max(Math.max(0, burn), filterResult.nobsDiffuse);
+        for (int t = start; t < nobs; t++) {
             int forecastCovOffset = filterResult.forecastErrorCovOffset(t);
             double forecastVariance = filterResult.forecastErrorCov[forecastCovOffset];
             if (Double.isNaN(effectiveEndog[t]) || !(forecastVariance > 0.0) || !Double.isFinite(forecastVariance)) {
@@ -1640,11 +1864,12 @@ public final class SARIMAX {
         double[] effectiveEndog = meta.endog();
         double sum = 0.0;
         int nobs = Math.min(filterResult.nobs, effectiveEndog.length);
+        int concentratedStart = Math.max(Math.max(0, burn), filterResult.nobsDiffuse);
         for (int t = Math.max(0, burn); t < nobs; t++) {
             double value = filterResult.logLikelihoodObs[filterResult.logLikelihoodObsOffset(t)];
             int forecastCovOffset = filterResult.forecastErrorCovOffset(t);
             double forecastVariance = filterResult.forecastErrorCov[forecastCovOffset];
-            if (!Double.isNaN(effectiveEndog[t]) && forecastVariance > 0.0 && Double.isFinite(forecastVariance)) {
+            if (t >= concentratedStart && !Double.isNaN(effectiveEndog[t]) && forecastVariance > 0.0 && Double.isFinite(forecastVariance)) {
                 int forecastErrorOffset = filterResult.forecastErrorOffset(t);
                 double errorRe = filterResult.forecastError[forecastErrorOffset];
                 double errorIm = filterResult.forecastError[forecastErrorOffset + 1];
@@ -1656,10 +1881,10 @@ public final class SARIMAX {
         return sum;
     }
 
-    private static StateSpaceModel toComplexStateSpace(StateSpaceModel source) {
-        StateSpaceModel expanded = StateSpaceModel.copyOf(source);
+    private static KalmanSSM toComplexStateSpace(KalmanSSM source) {
+        KalmanSSM expanded = KalmanSSM.copyOf(source);
         int secondIndex = expanded.observationCount() > 1 ? 1 : 0;
-        StateSpaceModel.Builder builder = StateSpaceModel.complexBuilder(
+        KalmanSSM.Builder builder = KalmanSSM.complexBuilder(
             expanded.observationDimension(),
             expanded.stateCount(),
             expanded.stateDisturbanceCount(),
@@ -1724,6 +1949,27 @@ public final class SARIMAX {
         return complex;
     }
 
+    private static double[] complexSlice(double[] target,
+                                         double[] params,
+                                         int perturbIndex,
+                                         double perturbStep,
+                                         int startInclusive,
+                                         int endExclusive) {
+        int length = Math.max(0, endExclusive - startInclusive) * 2;
+        if (length == 0) {
+            return EMPTY_COMPLEX_ARRAY;
+        }
+        if (target.length < length) {
+            target = new double[length];
+        }
+        for (int index = startInclusive; index < endExclusive; index++) {
+            int offset = (index - startInclusive) * 2;
+            target[offset] = params[index];
+            target[offset + 1] = imaginaryStep(perturbIndex, index, perturbStep);
+        }
+        return target;
+    }
+
     private static double[] sumScoreObs(double[] scoreObs, int paramCount) {
         double[] score = new double[paramCount];
         if (paramCount == 0) {
@@ -1749,67 +1995,7 @@ public final class SARIMAX {
         return 1e-20 * Math.max(1.0, Math.abs(value));
     }
 
-    private static double[] complexAdd(double[] left, double[] right) {
-        return complexScalar(left[0] + right[0], left[1] + right[1]);
-    }
-
-    private static double[] complexSubtract(double[] left, double[] right) {
-        return complexScalar(left[0] - right[0], left[1] - right[1]);
-    }
-
-    private static double[] complexScale(double[] value, double scale) {
-        return complexScalar(value[0] * scale, value[1] * scale);
-    }
-
-    private static double[] complexMultiply(double[] left, double[] right) {
-        return complexScalar(
-            left[0] * right[0] - left[1] * right[1],
-            left[0] * right[1] + left[1] * right[0]);
-    }
-
-    private static double[] reciprocalComplex(double re, double im) {
-        double denom = re * re + im * im;
-        if (!(denom > 0.0) || !Double.isFinite(denom)) {
-            return complexScalar(Double.NaN, Double.NaN);
-        }
-        return complexScalar(re / denom, -im / denom);
-    }
-
-    private static double[] logComplex(double re, double im) {
-        double magnitudeSquared = re * re + im * im;
-        if (!(magnitudeSquared > 0.0) || !Double.isFinite(magnitudeSquared)) {
-            return complexScalar(Double.NaN, Double.NaN);
-        }
-        return complexScalar(0.5 * Math.log(magnitudeSquared), Math.atan2(im, re));
-    }
-
-    private static boolean isFiniteComplex(double[] value) {
-        return value.length >= 2 && Double.isFinite(value[0]) && Double.isFinite(value[1]);
-    }
-
-    private static double[] complexVectorScale(double[] vector, double scaleRe, double scaleIm) {
-        double[] result = Arrays.copyOf(vector, vector.length);
-        ZLAS.zscal(vector.length >> 1, scaleRe, scaleIm, result, 0, 1);
-        return result;
-    }
-
-    private static double[] complexVectorAdd(double[] left, double[] right) {
-        double[] result = Arrays.copyOf(left, left.length);
-        ZLAS.zaxpy(left.length >> 1, 1.0, 0.0, right, 0, 1, result, 0, 1);
-        return result;
-    }
-
-    private static double[] complexMatrixAdd(double[] left, double[] right) {
-        double[] result = Arrays.copyOf(left, left.length);
-        ZLAS.zaxpy(left.length >> 1, 1.0, 0.0, right, 0, 1, result, 0, 1);
-        return result;
-    }
-
-    private static double[] complexMatrixMultiply(double[] left, double[] right, int rows, int inner, int cols) {
-        return complexMatrixMultiply(left, 0, inner, right, 0, cols, rows, inner, cols);
-    }
-
-    private static double[] complexMatrixMultiply(double[] left,
+    private static void complexMatrixMultiplyInto(double[] left,
                                                   int leftOffset,
                                                   int leftLeadingDimension,
                                                   double[] right,
@@ -1817,13 +2003,16 @@ public final class SARIMAX {
                                                   int rightLeadingDimension,
                                                   int rows,
                                                   int inner,
-                                                  int cols) {
-        double[] result = new double[rows * cols * 2];
+                                                  int cols,
+                                                  double[] target,
+                                                  int targetOffset,
+                                                  int targetLeadingDimension,
+                                                  double betaRe,
+                                                  double betaIm) {
         ZLAS.zgemm(BLAS.Trans.NoTrans, BLAS.Trans.NoTrans, rows, cols, inner,
             1.0, 0.0, left, leftOffset, leftLeadingDimension,
             right, rightOffset, rightLeadingDimension,
-            0.0, 0.0, result, 0, cols);
-        return result;
+            betaRe, betaIm, target, targetOffset, targetLeadingDimension);
     }
 
     private static boolean invertForecastCovariance(double[] matrix, int offset, int dimension, double[] inverse) {
@@ -1906,6 +2095,17 @@ public final class SARIMAX {
         return complexScalar(sumRe, sumIm);
     }
 
+    private static void dotComplexReal(double[] left, double[] right, double[] target) {
+        double sumRe = 0.0;
+        double sumIm = 0.0;
+        for (int i = 0; i < right.length; i++) {
+            sumRe += left[i * 2] * right[i];
+            sumIm += left[i * 2 + 1] * right[i];
+        }
+        target[0] = sumRe;
+        target[1] = sumIm;
+    }
+
     private static double[] sumComplex(double[] values) {
         double sumRe = 0.0;
         double sumIm = 0.0;
@@ -1914,6 +2114,18 @@ public final class SARIMAX {
             sumIm += values[i + 1];
         }
         return complexScalar(sumRe, sumIm);
+    }
+
+    private static void sumComplex(double[] values, int complexLength, double[] target) {
+        double sumRe = 0.0;
+        double sumIm = 0.0;
+        for (int i = 0; i < complexLength; i++) {
+            int off = i * 2;
+            sumRe += values[off];
+            sumIm += values[off + 1];
+        }
+        target[0] = sumRe;
+        target[1] = sumIm;
     }
 
     private static double[] divideComplex(double leftRe, double leftIm, double rightRe, double rightIm) {
@@ -1926,11 +2138,32 @@ public final class SARIMAX {
             (leftIm * rightRe - leftRe * rightIm) / denom);
     }
 
+    private static void divideComplex(double leftRe, double leftIm, double rightRe, double rightIm, double[] target) {
+        double denom = rightRe * rightRe + rightIm * rightIm;
+        if (!(denom > 0.0)) {
+            target[0] = 0.0;
+            target[1] = 0.0;
+            return;
+        }
+        target[0] = (leftRe * rightRe + leftIm * rightIm) / denom;
+        target[1] = (leftIm * rightRe - leftRe * rightIm) / denom;
+    }
+
     private static double[] positiveContinuation(double re, double im) {
         if (im == 0.0 && re < 1e-8) {
             return complexScalar(1e-8, 0.0);
         }
         return complexScalar(re, im);
+    }
+
+    private static void positiveContinuation(double re, double im, double[] target) {
+        if (im == 0.0 && re < 1e-8) {
+            target[0] = 1e-8;
+            target[1] = 0.0;
+            return;
+        }
+        target[0] = re;
+        target[1] = im;
     }
 
     private static double[] complexScalar(double re, double im) {
@@ -1966,6 +2199,15 @@ public final class SARIMAX {
     private static boolean allFinite(double[] values) {
         for (double value : values) {
             if (!Double.isFinite(value)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean allFinite(double[] values, int offset, int length) {
+        for (int index = 0; index < length; index++) {
+            if (!Double.isFinite(values[offset + index])) {
                 return false;
             }
         }
@@ -2090,20 +2332,258 @@ public final class SARIMAX {
     }
 
     private static final class RealUpdateWorkspace {
-        private double[] leftPolynomial = new double[1];
-        private double[] rightPolynomial = new double[1];
-        private double[] product = new double[1];
+        private final DoubleArena leftPolynomialArena = new DoubleArena();
+        private final DoubleArena rightPolynomialArena = new DoubleArena();
+        private final DoubleArena productArena = new DoubleArena();
+        private double[] leftPolynomial = UNIT_POLYNOMIAL;
+        private double[] rightPolynomial = UNIT_POLYNOMIAL;
+        private double[] product = UNIT_POLYNOMIAL;
 
         private void ensure(int leftLength, int rightLength, int productLength) {
-            if (leftPolynomial.length < leftLength) {
-                leftPolynomial = new double[leftLength];
-            }
-            if (rightPolynomial.length < rightLength) {
-                rightPolynomial = new double[rightLength];
-            }
-            if (product.length < productLength) {
-                product = new double[productLength];
-            }
+            leftPolynomial = leftPolynomialArena.borrow(leftLength);
+            rightPolynomial = rightPolynomialArena.borrow(rightLength);
+            product = productArena.borrow(productLength);
+        }
+
+        private void release() {
+            leftPolynomialArena.release();
+            rightPolynomialArena.release();
+            productArena.release();
+            leftPolynomial = UNIT_POLYNOMIAL;
+            rightPolynomial = UNIT_POLYNOMIAL;
+            product = UNIT_POLYNOMIAL;
+        }
+    }
+
+    private static final class ComplexUpdateWorkspace {
+        private double[] trendParams = EMPTY_COMPLEX_ARRAY;
+        private double[] exogParams = EMPTY_COMPLEX_ARRAY;
+        private double[] arParams = EMPTY_COMPLEX_ARRAY;
+        private double[] maParams = EMPTY_COMPLEX_ARRAY;
+        private double[] seasonalArParams = EMPTY_COMPLEX_ARRAY;
+        private double[] seasonalMaParams = EMPTY_COMPLEX_ARRAY;
+        private double[] exogVariances = EMPTY_COMPLEX_ARRAY;
+        private final DoubleArena leftPolynomialArena = new DoubleArena();
+        private final DoubleArena rightPolynomialArena = new DoubleArena();
+        private final DoubleArena productArena = new DoubleArena();
+        private double[] leftPolynomial = UNIT_COMPLEX_POLYNOMIAL;
+        private double[] rightPolynomial = UNIT_COMPLEX_POLYNOMIAL;
+        private double[] product = UNIT_COMPLEX_POLYNOMIAL;
+        private final double[] scalar0 = new double[2];
+        private final double[] scalar1 = new double[2];
+        private final double[] scalar2 = new double[2];
+
+        private void ensurePolynomialCapacity(int leftLength, int rightLength, int productLength) {
+            leftPolynomial = leftPolynomialArena.borrow(leftLength * 2);
+            rightPolynomial = rightPolynomialArena.borrow(rightLength * 2);
+            product = productArena.borrow(productLength * 2);
+        }
+
+        private void release() {
+            trendParams = EMPTY_COMPLEX_ARRAY;
+            exogParams = EMPTY_COMPLEX_ARRAY;
+            arParams = EMPTY_COMPLEX_ARRAY;
+            maParams = EMPTY_COMPLEX_ARRAY;
+            seasonalArParams = EMPTY_COMPLEX_ARRAY;
+            seasonalMaParams = EMPTY_COMPLEX_ARRAY;
+            exogVariances = EMPTY_COMPLEX_ARRAY;
+            leftPolynomialArena.release();
+            rightPolynomialArena.release();
+            productArena.release();
+            leftPolynomial = UNIT_COMPLEX_POLYNOMIAL;
+            rightPolynomial = UNIT_COMPLEX_POLYNOMIAL;
+            product = UNIT_COMPLEX_POLYNOMIAL;
+        }
+    }
+
+    private static final class AnalyticComplexWorkspace {
+        private static final int[] EMPTY_INT_ARRAY = new int[0];
+
+        private final DoubleArena state0Arena = new DoubleArena();
+        private final DoubleArena state1Arena = new DoubleArena();
+        private final DoubleArena covariance0Arena = new DoubleArena();
+        private final DoubleArena covariance1Arena = new DoubleArena();
+        private final DoubleArena filteredStateArena = new DoubleArena();
+        private final DoubleArena filteredCovarianceArena = new DoubleArena();
+        private final DoubleArena gainNumeratorArena = new DoubleArena();
+        private final DoubleArena transitionTimesCovarianceArena = new DoubleArena();
+        private final DoubleArena selectedCovarianceArena = new DoubleArena();
+        private final DoubleArena logLikelihoodObsArena = new DoubleArena();
+        private final DoubleArena forecastErrorArena = new DoubleArena();
+        private final DoubleArena forecastVarianceArena = new DoubleArena();
+        private final DoubleArena stationaryTransitionArena = new DoubleArena();
+        private final DoubleArena stationaryStateInterceptArena = new DoubleArena();
+        private final DoubleArena stationarySelectionArena = new DoubleArena();
+        private final DoubleArena stationaryStateCovarianceArena = new DoubleArena();
+        private final DoubleArena stationaryMeanSystemArena = new DoubleArena();
+        private final DoubleArena stationaryStateArena = new DoubleArena();
+        private final DoubleArena stationaryCovarianceRhsArena = new DoubleArena();
+        private final DoubleArena stationarySelectedCovarianceArena = new DoubleArena();
+        private final DoubleArena stationaryCovarianceSystemArena = new DoubleArena();
+        private final DoubleArena stationaryCovarianceVectorArena = new DoubleArena();
+        private final DoubleArena realifiedMatrixArena = new DoubleArena();
+        private final DoubleArena realifiedVectorArena = new DoubleArena();
+        private final IntArena realifiedPivotArena = new IntArena();
+
+        private double[] state0 = EMPTY_COMPLEX_ARRAY;
+        private double[] state1 = EMPTY_COMPLEX_ARRAY;
+        private double[] covariance0 = EMPTY_COMPLEX_ARRAY;
+        private double[] covariance1 = EMPTY_COMPLEX_ARRAY;
+        private double[] filteredState = EMPTY_COMPLEX_ARRAY;
+        private double[] filteredCovariance = EMPTY_COMPLEX_ARRAY;
+        private double[] gainNumerator = EMPTY_COMPLEX_ARRAY;
+        private double[] transitionTimesCovariance = EMPTY_COMPLEX_ARRAY;
+        private double[] selectedCovariance = EMPTY_COMPLEX_ARRAY;
+        private double[] logLikelihoodObs = EMPTY_COMPLEX_ARRAY;
+        private double[] forecastError = EMPTY_COMPLEX_ARRAY;
+        private double[] forecastVariance = EMPTY_COMPLEX_ARRAY;
+        private double[] stationaryTransition = EMPTY_COMPLEX_ARRAY;
+        private double[] stationaryStateIntercept = EMPTY_COMPLEX_ARRAY;
+        private double[] stationarySelection = EMPTY_COMPLEX_ARRAY;
+        private double[] stationaryStateCovariance = EMPTY_COMPLEX_ARRAY;
+        private double[] stationaryMeanSystem = EMPTY_COMPLEX_ARRAY;
+        private double[] stationaryState = EMPTY_COMPLEX_ARRAY;
+        private double[] stationaryCovarianceRhs = EMPTY_COMPLEX_ARRAY;
+        private double[] stationarySelectedCovariance = EMPTY_COMPLEX_ARRAY;
+        private double[] stationaryCovarianceSystem = EMPTY_COMPLEX_ARRAY;
+        private double[] stationaryCovarianceVector = EMPTY_COMPLEX_ARRAY;
+        private double[] realifiedMatrix = EMPTY_COMPLEX_ARRAY;
+        private double[] realifiedVector = EMPTY_COMPLEX_ARRAY;
+        private int[] realifiedPivots = EMPTY_INT_ARRAY;
+        private final double[] dot = new double[2];
+        private final double[] logLikelihoodSum = new double[2];
+
+        private void ensureFilter(int stateCount, int kPosdef) {
+            int stateLength = stateCount * 2;
+            int covarianceLength = stateCount * stateCount * 2;
+            state0 = borrow(state0Arena, stateLength);
+            state1 = borrow(state1Arena, stateLength);
+            covariance0 = borrow(covariance0Arena, covarianceLength);
+            covariance1 = borrow(covariance1Arena, covarianceLength);
+            filteredState = borrow(filteredStateArena, stateLength);
+            filteredCovariance = borrow(filteredCovarianceArena, covarianceLength);
+            gainNumerator = borrow(gainNumeratorArena, stateLength);
+            transitionTimesCovariance = borrow(transitionTimesCovarianceArena, covarianceLength);
+            selectedCovariance = kPosdef > 0
+                ? borrow(selectedCovarianceArena, stateCount * kPosdef * 2)
+                : EMPTY_COMPLEX_ARRAY;
+        }
+
+        private void ensureLogLikelihoodObs(int nobs) {
+            logLikelihoodObs = borrow(logLikelihoodObsArena, nobs * 2);
+        }
+
+        private void ensureForecastSurface(int nobs) {
+            forecastError = borrow(forecastErrorArena, nobs * 2);
+            forecastVariance = borrow(forecastVarianceArena, nobs * 2);
+        }
+
+        private void ensureStationary(int dimension, int kPosdef) {
+            int squareLength = dimension * dimension * 2;
+            int systemDimension = dimension * dimension;
+            stationaryTransition = borrow(stationaryTransitionArena, squareLength);
+            stationaryStateIntercept = borrow(stationaryStateInterceptArena, dimension * 2);
+            stationarySelection = kPosdef > 0
+                ? borrow(stationarySelectionArena, dimension * kPosdef * 2)
+                : EMPTY_COMPLEX_ARRAY;
+            stationaryStateCovariance = kPosdef > 0
+                ? borrow(stationaryStateCovarianceArena, kPosdef * kPosdef * 2)
+                : EMPTY_COMPLEX_ARRAY;
+            stationaryMeanSystem = borrow(stationaryMeanSystemArena, squareLength);
+            stationaryState = borrow(stationaryStateArena, dimension * 2);
+            stationaryCovarianceRhs = borrow(stationaryCovarianceRhsArena, squareLength);
+            stationarySelectedCovariance = kPosdef > 0
+                ? borrow(stationarySelectedCovarianceArena, dimension * kPosdef * 2)
+                : EMPTY_COMPLEX_ARRAY;
+            stationaryCovarianceSystem = borrow(stationaryCovarianceSystemArena, systemDimension * systemDimension * 2);
+            stationaryCovarianceVector = borrow(stationaryCovarianceVectorArena, systemDimension * 2);
+        }
+
+        private void ensureRealifiedCapacity(int realDimension) {
+            realifiedMatrix = borrow(realifiedMatrixArena, realDimension * realDimension);
+            realifiedVector = borrow(realifiedVectorArena, realDimension);
+            realifiedPivots = realDimension == 0 ? EMPTY_INT_ARRAY : realifiedPivotArena.borrow(realDimension);
+        }
+
+        private void release() {
+            state0Arena.release();
+            state1Arena.release();
+            covariance0Arena.release();
+            covariance1Arena.release();
+            filteredStateArena.release();
+            filteredCovarianceArena.release();
+            gainNumeratorArena.release();
+            transitionTimesCovarianceArena.release();
+            selectedCovarianceArena.release();
+            logLikelihoodObsArena.release();
+            forecastErrorArena.release();
+            forecastVarianceArena.release();
+            stationaryTransitionArena.release();
+            stationaryStateInterceptArena.release();
+            stationarySelectionArena.release();
+            stationaryStateCovarianceArena.release();
+            stationaryMeanSystemArena.release();
+            stationaryStateArena.release();
+            stationaryCovarianceRhsArena.release();
+            stationarySelectedCovarianceArena.release();
+            stationaryCovarianceSystemArena.release();
+            stationaryCovarianceVectorArena.release();
+            realifiedMatrixArena.release();
+            realifiedVectorArena.release();
+            realifiedPivotArena.release();
+            state0 = EMPTY_COMPLEX_ARRAY;
+            state1 = EMPTY_COMPLEX_ARRAY;
+            covariance0 = EMPTY_COMPLEX_ARRAY;
+            covariance1 = EMPTY_COMPLEX_ARRAY;
+            filteredState = EMPTY_COMPLEX_ARRAY;
+            filteredCovariance = EMPTY_COMPLEX_ARRAY;
+            gainNumerator = EMPTY_COMPLEX_ARRAY;
+            transitionTimesCovariance = EMPTY_COMPLEX_ARRAY;
+            selectedCovariance = EMPTY_COMPLEX_ARRAY;
+            logLikelihoodObs = EMPTY_COMPLEX_ARRAY;
+            forecastError = EMPTY_COMPLEX_ARRAY;
+            forecastVariance = EMPTY_COMPLEX_ARRAY;
+            stationaryTransition = EMPTY_COMPLEX_ARRAY;
+            stationaryStateIntercept = EMPTY_COMPLEX_ARRAY;
+            stationarySelection = EMPTY_COMPLEX_ARRAY;
+            stationaryStateCovariance = EMPTY_COMPLEX_ARRAY;
+            stationaryMeanSystem = EMPTY_COMPLEX_ARRAY;
+            stationaryState = EMPTY_COMPLEX_ARRAY;
+            stationaryCovarianceRhs = EMPTY_COMPLEX_ARRAY;
+            stationarySelectedCovariance = EMPTY_COMPLEX_ARRAY;
+            stationaryCovarianceSystem = EMPTY_COMPLEX_ARRAY;
+            stationaryCovarianceVector = EMPTY_COMPLEX_ARRAY;
+            realifiedMatrix = EMPTY_COMPLEX_ARRAY;
+            realifiedVector = EMPTY_COMPLEX_ARRAY;
+            realifiedPivots = EMPTY_INT_ARRAY;
+        }
+
+        private static double[] borrow(DoubleArena arena, int length) {
+            return length == 0 ? EMPTY_COMPLEX_ARRAY : arena.borrow(length);
+        }
+    }
+
+    private static final class PhaseWorkspace {
+        private final DoubleArena stepsArena = new DoubleArena();
+        private final DoubleArena plusParamsArena = new DoubleArena();
+        private final DoubleArena minusParamsArena = new DoubleArena();
+        private double[] steps = EMPTY_COMPLEX_ARRAY;
+        private double[] plusParams = EMPTY_COMPLEX_ARRAY;
+        private double[] minusParams = EMPTY_COMPLEX_ARRAY;
+
+        private void ensureParamCount(int paramCount) {
+            steps = stepsArena.borrow(paramCount);
+            plusParams = plusParamsArena.borrow(paramCount);
+            minusParams = minusParamsArena.borrow(paramCount);
+        }
+
+        private void release() {
+            stepsArena.release();
+            plusParamsArena.release();
+            minusParamsArena.release();
+            steps = EMPTY_COMPLEX_ARRAY;
+            plusParams = EMPTY_COMPLEX_ARRAY;
+            minusParams = EMPTY_COMPLEX_ARRAY;
         }
     }
 
@@ -2118,10 +2598,6 @@ public final class SARIMAX {
         }
     }
 
-    private record ComplexForecastSurface(double[] forecastError, double[] forecastVariance) {}
-
-    private record AnalyticInitialization(double[] state, double[] covariance) {}
-
     private static void scaleSurface(double[] values, double scale) {
         if (values == null) {
             return;
@@ -2133,8 +2609,15 @@ public final class SARIMAX {
 
     private final class RealDelegate extends RealMLE {
 
+        private final RealUpdateWorkspace updateWorkspace = new RealUpdateWorkspace();
+
         private RealDelegate() {
             super(meta.templateModel(), meta.startParams(), meta.parameterNames());
+        }
+
+        private void trimDelegateWorkspace() {
+            trimWorkspaces();
+            updateWorkspace.release();
         }
 
         @Override
@@ -2148,15 +2631,21 @@ public final class SARIMAX {
         }
 
         @Override
-        protected FilterSpec likelihoodSpec() {
-            return spec.concentrateScale() ? CONCENTRATED_LIKELIHOOD_SPEC : super.likelihoodSpec();
+        protected FilterOptions likelihoodOptions() {
+            return spec.concentrateScale() ? realConcentratedLikelihoodOptions(CONCENTRATED_LIKELIHOOD_OPTIONS) : super.likelihoodOptions();
+        }
+
+        @Override
+        protected FilterOptions likelihoodOptions(FilterOptions options) {
+            FilterOptions resolved = super.likelihoodOptions(options);
+            return spec.concentrateScale() ? realConcentratedLikelihoodOptions(resolved) : resolved;
         }
 
         @Override
         protected double[] adjustLogLikelihoodObs(FilterResult filterResult,
                                                   double[] logLikelihoodObs,
                                                   double[] params,
-                                                  StateSpaceModel model,
+                                                  KalmanSSM model,
                                                   int burn) {
             return adjustLogLikelihoodObsInternal(filterResult, logLikelihoodObs, params, model, burn);
         }
@@ -2164,23 +2653,23 @@ public final class SARIMAX {
         @Override
         protected double adjustedLogLikelihood(FilterResult filterResult,
                                                double[] params,
-                                               StateSpaceModel model,
+                                               KalmanSSM model,
                                                int burn) {
             return adjustedLogLikelihoodInternal(filterResult, burn);
         }
 
         @Override
-        protected void updateModel(double[] params, StateSpaceModel model) {
-            updateModelInternal(params, model);
+        protected void updateModel(double[] params, KalmanSSM model) {
+            updateModelInternal(params, model, updateWorkspace);
         }
 
         @Override
-        protected StateInitialization initialization(double[] params, StateSpaceModel model) {
+        protected InitialState initialState(double[] params, KalmanSSM model) {
             return initializationInternal(params, model);
         }
 
         @Override
-        protected int likelihoodBurn(double[] params, StateSpaceModel model) {
+        protected int likelihoodBurn(double[] params, KalmanSSM model) {
             return likelihoodBurnInternal(params, model);
         }
 
@@ -2228,6 +2717,8 @@ public final class SARIMAX {
 
     private final class ComplexDelegate extends ComplexMLE {
 
+        private final ComplexUpdateWorkspace updateWorkspace = new ComplexUpdateWorkspace();
+
         private int perturbIndex = -1;
         private double perturbStep = 0.0;
 
@@ -2235,17 +2726,35 @@ public final class SARIMAX {
             super(toComplexStateSpace(meta.templateModel()), meta.startParams(), meta.parameterNames());
         }
 
-        private StateSpaceModel snapshotComplexModel(double[] params) {
+        private void trimDelegateWorkspace() {
+            trimWorkspaces();
+            updateWorkspace.release();
+        }
+
+        private KalmanSSM snapshotComplexModel(double[] params) {
             return snapshotComplexModel(params, -1, 0.0);
         }
 
-        private StateSpaceModel snapshotComplexModel(double[] params, int perturbIndex, double perturbStep) {
+        private KalmanSSM snapshotComplexModel(double[] params, int perturbIndex, double perturbStep) {
             int previousIndex = this.perturbIndex;
             double previousStep = this.perturbStep;
             this.perturbIndex = perturbIndex;
             this.perturbStep = perturbStep;
             try {
                 return super.snapshotModel(params);
+            } finally {
+                this.perturbIndex = previousIndex;
+                this.perturbStep = previousStep;
+            }
+        }
+
+        private KalmanSSM borrowedComplexModel(double[] params, int perturbIndex, double perturbStep) {
+            int previousIndex = this.perturbIndex;
+            double previousStep = this.perturbStep;
+            this.perturbIndex = perturbIndex;
+            this.perturbStep = perturbStep;
+            try {
+                return super.borrowedModel(params);
             } finally {
                 this.perturbIndex = previousIndex;
                 this.perturbStep = previousStep;
@@ -2263,42 +2772,48 @@ public final class SARIMAX {
         }
 
         @Override
-        protected FilterSpec likelihoodSpec() {
-            return spec.concentrateScale() ? CONCENTRATED_LIKELIHOOD_SPEC : super.likelihoodSpec();
+        protected FilterOptions likelihoodOptions() {
+            return spec.concentrateScale() ? CONCENTRATED_LIKELIHOOD_OPTIONS : super.likelihoodOptions();
+        }
+
+        @Override
+        protected FilterOptions likelihoodOptions(FilterOptions options) {
+            FilterOptions resolved = super.likelihoodOptions(options);
+            return spec.concentrateScale() ? requireConcentratedLikelihoodSurfaces(resolved) : resolved;
         }
 
         @Override
         protected double[] adjustLogLikelihoodObs(ZFilterResult filterResult,
                                                   double[] logLikelihoodObs,
                                                   double[] params,
-                                                  StateSpaceModel model,
+                                                  KalmanSSM model,
                                                   int burn) {
             if (!spec.concentrateScale()) {
                 return logLikelihoodObs;
             }
-            return concentratedLogLikelihoodObs(filterResult, logLikelihoodObs, concentratedScale(filterResult, burn));
+            return concentratedLogLikelihoodObs(filterResult, logLikelihoodObs, concentratedScale(filterResult, burn), burn);
         }
 
         @Override
         protected double adjustedLogLikelihood(ZFilterResult filterResult,
                                                double[] params,
-                                               StateSpaceModel model,
+                                               KalmanSSM model,
                                                int burn) {
             return adjustedLogLikelihoodInternal(filterResult, burn);
         }
 
         @Override
-        protected void updateModel(double[] params, StateSpaceModel model) {
-            updateModelComplexInternal(params, perturbIndex, perturbStep, model);
+        protected void updateModel(double[] params, KalmanSSM model) {
+            updateModelComplexInternal(params, perturbIndex, perturbStep, model, updateWorkspace);
         }
 
         @Override
-        protected StateInitialization initialization(double[] params, StateSpaceModel model) {
+        protected InitialState initialState(double[] params, KalmanSSM model) {
             return initializationInternal(params, model);
         }
 
         @Override
-        protected int likelihoodBurn(double[] params, StateSpaceModel model) {
+        protected int likelihoodBurn(double[] params, KalmanSSM model) {
             return likelihoodBurnInternal(params, model);
         }
     }

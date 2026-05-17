@@ -6,7 +6,6 @@ package com.curioloop.yum4j.optim.lbfgsb;
 import com.curioloop.yum4j.optim.Optimization;
 import com.curioloop.yum4j.optim.TestTemplates;
 import org.openjdk.jmh.annotations.*;
-import org.openjdk.jmh.infra.Blackhole;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.Options;
@@ -64,8 +63,9 @@ public class LBFGSBDetailedBenchmark {
     }
 
     @Benchmark
-    public void lbfgsb_rosenbrock(Blackhole bh) {
-        bh.consume(problem.solve(workspace));
+    public double lbfgsb_rosenbrock() {
+        Optimization result = problem.solve(workspace);
+        return result.cost() + result.iterations() + result.status().ordinal();
     }
 
     public static void main(String[] args) throws RunnerException {

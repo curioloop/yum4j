@@ -51,6 +51,12 @@ public final class InverseChiSquareDistribution implements ContinuousDistributio
         return inverseGammaEquivalent.pdf(x);
     }
 
+    /** Delegate to the equivalent inverse-gamma: both forms are identical up to re-parameterisation. */
+    @Override
+    public double logPdf(double x) {
+        return inverseGammaEquivalent.logPdf(x);
+    }
+
     @Override
     public double cdf(double x) {
         return inverseGammaEquivalent.cdf(x);

@@ -49,6 +49,9 @@ import java.util.Random;
  */
 public final class CMAESCore {
 
+    private static final int COVARIANCE_DGER_MIN_N = 30;
+    private static final int SORT_QUICK_MIN_LAMBDA = 32;
+
     private CMAESCore() {}
 
     // ── Parameter initialization ──────────────────────────────────────────
@@ -106,7 +109,7 @@ public final class CMAESCore {
             sumw  += w;
             sumwq += w * w;
         }
-        for (int i = 0; i < mu; i++) lVec[WEIGHTS + i] /= sumw;
+        BLAS.dscal(mu, 1.0 / sumw, lVec, WEIGHTS, 1);
         ws.mueff = sumw * sumw / sumwq;
 
         // ── Step 2: Strategy parameters (pycma formulas, no maxIterations) ─
@@ -136,20 +139,20 @@ public final class CMAESCore {
         final double mueffMinus = ws.mueffNeg;
 
         if (sumNeg < 0) {
-            for (int i = mu; i < lambda; i++) lVec[WEIGHTS + i] /= (-sumNeg);
+            BLAS.dscal(lambda - mu, -1.0 / sumNeg, lVec, WEIGHTS + mu, 1);
         }
 
         // ── Step 4: Three-step finalization ───────────────────────────────
         if (cmu > 0) {
             double negScale = 1.0 + c1 / cmu;
-            for (int i = mu; i < lambda; i++) lVec[WEIGHTS + i] *= negScale;
+            BLAS.dscal(lambda - mu, negScale, lVec, WEIGHTS + mu, 1);
 
             double posDefLimit = (1.0 - c1 - cmu) / cmu / n;
             double curAbsSum = 0;
             for (int i = mu; i < lambda; i++) curAbsSum -= lVec[WEIGHTS + i];
             if (curAbsSum > posDefLimit) {
                 double factor = posDefLimit / curAbsSum;
-                for (int i = mu; i < lambda; i++) lVec[WEIGHTS + i] *= factor;
+                BLAS.dscal(lambda - mu, factor, lVec, WEIGHTS + mu, 1);
             }
         }
         double mueffLimit = 1.0 + 2.0 * mueffMinus / (ws.mueff + 2.0);
@@ -157,11 +160,11 @@ public final class CMAESCore {
         for (int i = mu; i < lambda; i++) curAbsSum2 -= lVec[WEIGHTS + i];
         if (curAbsSum2 > mueffLimit) {
             double factor = mueffLimit / curAbsSum2;
-            for (int i = mu; i < lambda; i++) lVec[WEIGHTS + i] *= factor;
+            BLAS.dscal(lambda - mu, factor, lVec, WEIGHTS + mu, 1);
         }
 
         if (cmu == 0) {
-            for (int i = mu; i < lambda; i++) lVec[WEIGHTS + i] = 0.0;
+            Arrays.fill(lVec, WEIGHTS + mu, WEIGHTS + lambda, 0.0);
         }
 
         // ── Step 5: Diagonal mode learning rates ──────────────────────────
@@ -364,9 +367,8 @@ public final class CMAESCore {
 
         // ps = (1-cs)*ps + sqrt(cs*(2-cs)*mueff) * z
         double csCoeff = Math.sqrt(ws.cs * (2.0 - ws.cs) * ws.mueff);
-        for (int i = 0; i < n; i++) {
-            nVec[PS + i] = (1.0 - ws.cs) * nVec[PS + i] + csCoeff * nVec[EVALS + i];
-        }
+        BLAS.dscal(n, 1.0 - ws.cs, nVec, PS, 1);
+        BLAS.daxpy(n, csCoeff, nVec, EVALS, 1, nVec, PS, 1);
 
         // ‖p_σ‖ via Dnrm2
         ws.normps = BLAS.dnrm2(n, nVec, PS, 1);
@@ -379,12 +381,11 @@ public final class CMAESCore {
 
         // pc update
         double ccFac = 1.0 - ws.cc;
-        for (int i = 0; i < n; i++) nVec[PC + i] *= ccFac;
+        BLAS.dscal(n, ccFac, nVec, PC, 1);
         if (hsig) {
             double pcCoeff = Math.sqrt(ws.cc * (2.0 - ws.cc) * ws.mueff) / ws.sigma;
-            for (int i = 0; i < n; i++) {
-                nVec[PC + i] += pcCoeff * (nVec[XMEAN + i] - nVec[XOLD + i]);
-            }
+            BLAS.daxpy(n, pcCoeff, nVec, XMEAN, 1, nVec, PC, 1);
+            BLAS.daxpy(n, -pcCoeff, nVec, XOLD, 1, nVec, PC, 1);
         }
 
         return hsig;
@@ -443,14 +444,8 @@ public final class CMAESCore {
         // Since C is stored as full symmetric matrix, scale all n² elements
         BLAS.dscal(n * n, scaleFactor, mat, C_OFF, 1);
 
-        // Step 2: rank-1 update C += c_1·p_c·p_cᵀ  (symmetric, both triangles)
-        for (int i = 0; i < n; i++) {
-            for (int j = 0; j <= i; j++) {
-                double val = c1 * nVec[PC + i] * nVec[PC + j];
-                mat[C_OFF + i * n + j] += val;
-                if (i != j) mat[C_OFF + j * n + i] += val;
-            }
-        }
+        // Step 2: rank-1 update C += c_1·p_c·p_cᵀ  (full symmetric storage)
+        symmetricRankOneUpdateFull(n, c1, nVec, PC, mat, C_OFF);
 
         // Step 3: rank-μ update — unified over all λ individuals
         for (int k = 0; k < lambda; k++) {
@@ -488,12 +483,25 @@ public final class CMAESCore {
                 continue;
             }
 
-            // C += effectiveW · δ·δᵀ  (symmetric, both triangles)
-            for (int r = 0; r < n; r++) {
-                for (int c = 0; c <= r; c++) {
-                    double val = effectiveW * nVec[DIAGC + r] * nVec[DIAGC + c];
-                    mat[C_OFF + r * n + c] += val;
-                    if (r != c) mat[C_OFF + c * n + r] += val;
+            // C += effectiveW · δ·δᵀ  (full symmetric storage)
+            symmetricRankOneUpdateFull(n, effectiveW, nVec, DIAGC, mat, C_OFF);
+        }
+    }
+
+    private static void symmetricRankOneUpdateFull(int n, double alpha, double[] x, int xOff,
+                                                   double[] matrix, int matrixOff) {
+        if (n >= COVARIANCE_DGER_MIN_N) {
+            BLAS.dger(n, n, alpha, x, xOff, 1, x, xOff, 1, matrix, matrixOff, n);
+            return;
+        }
+        for (int row = 0; row < n; row++) {
+            double rowValue = x[xOff + row];
+            int rowOffset = matrixOff + row * n;
+            for (int col = 0; col <= row; col++) {
+                double update = alpha * rowValue * x[xOff + col];
+                matrix[rowOffset + col] += update;
+                if (row != col) {
+                    matrix[matrixOff + col * n + row] += update;
                 }
             }
         }
@@ -525,8 +533,8 @@ public final class CMAESCore {
         double oldFac = (hsig ? 0.0 : ws.ccov1Sep * ws.cc * (2.0 - ws.cc))
                       + (1.0 - ws.ccov1Sep - ws.ccovmuSep);
 
+        BLAS.dscal(n, oldFac, nVec, DIAGC, 1);
         for (int i = 0; i < n; i++) {
-            nVec[DIAGC + i] *= oldFac;
             nVec[DIAGC + i] += ws.ccov1Sep * nVec[PC + i] * nVec[PC + i];
         }
 
@@ -789,7 +797,7 @@ public final class CMAESCore {
         final int FITNESS = ws.FITNESS, PENALTY = ws.PENALTY;
 
         for (int k = 0; k < lambda; k++) {
-            for (int i = 0; i < n; i++) xbuf[i] = ws.arx[i * lambda + k];
+            BLAS.dcopy(n, ws.arx, k, lambda, xbuf, 0, 1);
             double f = fn.evaluate(xbuf, ws.n);
             lVec[FITNESS + k] = f;
             lVec[PENALTY + k] = (bounds != null) ? computeRawPenalty(ws.arx, k, lambda, n, bounds) : 0.0;
@@ -823,9 +831,7 @@ public final class CMAESCore {
                 }
             }
             double valueRange = anyFeasible ? Math.max(1.0, feasMax - feasMin) : 1.0;
-            for (int k = 0; k < lambda; k++) {
-                lVec[FITNESS + k] += lVec[PENALTY + k] * valueRange;
-            }
+            BLAS.daxpy(lambda, valueRange, lVec, PENALTY, 1, lVec, FITNESS, 1);
         }
 
         return true;
@@ -967,31 +973,67 @@ public final class CMAESCore {
 
     /** Sorts {@code arindex[0…λ−1]} by ascending {@code fitness} values (insertion sort). */
     static void sortIndices(double[] fitness, int[] arindex, int lambda) {
-        for (int i = 0; i < lambda; i++) arindex[i] = i;
-        for (int i = 1; i < lambda; i++) {
-            int key = arindex[i];
-            double keyVal = fitness[key];
-            int j = i - 1;
-            while (j >= 0 && fitness[arindex[j]] > keyVal) {
-                arindex[j + 1] = arindex[j];
-                j--;
-            }
-            arindex[j + 1] = key;
-        }
+        sortIndices(fitness, 0, arindex, lambda);
     }
 
     /** Sorts {@code arindex[0…λ−1]} by ascending {@code lVec[fitnessOffset+k]} values (insertion sort). */
     static void sortIndices(double[] lVec, int fitnessOffset, int[] arindex, int lambda) {
         for (int i = 0; i < lambda; i++) arindex[i] = i;
-        for (int i = 1; i < lambda; i++) {
-            int key = arindex[i];
-            double keyVal = lVec[fitnessOffset + key];
+        if (lambda < SORT_QUICK_MIN_LAMBDA) {
+            insertionSortIndices(lVec, fitnessOffset, arindex, 0, lambda - 1);
+        } else {
+            quickSortIndices(lVec, fitnessOffset, arindex, 0, lambda - 1);
+        }
+    }
+
+    private static void quickSortIndices(double[] values, int offset, int[] index, int left, int right) {
+        while (right - left > 24) {
+            int i = left;
+            int j = right;
+            int pivotIndex = index[(left + right) >>> 1];
+            double pivotValue = values[offset + pivotIndex];
+            while (i <= j) {
+                while (less(values, offset, index[i], pivotValue, pivotIndex)) i++;
+                while (greater(values, offset, index[j], pivotValue, pivotIndex)) j--;
+                if (i <= j) {
+                    int tmp = index[i];
+                    index[i] = index[j];
+                    index[j] = tmp;
+                    i++;
+                    j--;
+                }
+            }
+            if (j - left < right - i) {
+                if (left < j) quickSortIndices(values, offset, index, left, j);
+                left = i;
+            } else {
+                if (i < right) quickSortIndices(values, offset, index, i, right);
+                right = j;
+            }
+        }
+        insertionSortIndices(values, offset, index, left, right);
+    }
+
+    private static void insertionSortIndices(double[] values, int offset, int[] index, int left, int right) {
+        for (int i = left + 1; i <= right; i++) {
+            int key = index[i];
+            double keyValue = values[offset + key];
             int j = i - 1;
-            while (j >= 0 && lVec[fitnessOffset + arindex[j]] > keyVal) {
-                arindex[j + 1] = arindex[j];
+            while (j >= left && greater(values, offset, index[j], keyValue, key)) {
+                index[j + 1] = index[j];
                 j--;
             }
-            arindex[j + 1] = key;
+            index[j + 1] = key;
         }
+    }
+
+    private static boolean less(double[] values, int offset, int leftIndex, double rightValue, int rightIndex) {
+        double leftValue = values[offset + leftIndex];
+        return leftValue < rightValue || (leftValue == rightValue && leftIndex < rightIndex);
+    }
+
+    private static boolean greater(double[] values, int offset, int leftIndex, double rightValue, int rightIndex) {
+        double leftValue = values[offset + leftIndex];
+        return leftValue > rightValue || (leftValue == rightValue && leftIndex > rightIndex);
     }
 }

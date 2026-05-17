@@ -35,6 +35,31 @@ public value record ChiSquareDistribution(double degreesOfFreedom) implements Co
         return 0.5 * Gamma.gammaPDerivative(0.5 * degreesOfFreedom, 0.5 * x);
     }
 
+    /**
+     * Direct-formula log-pdf:
+     * {@code -(k/2)·log(2) - lgamma(k/2) + (k/2 - 1)·log(x) - x/2}
+     * where {@code k = degreesOfFreedom}.
+     *
+     * <p>Preserves accuracy in the far right tail where the
+     * {@code exp(-x/2)} factor in {@code pdf} underflows to zero.
+     */
+    @Override
+    public double logPdf(double x) {
+        validateX(x);
+        if (Double.isInfinite(x)) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        if (x == 0.0) {
+            if (degreesOfFreedom == 2.0) return -Math.log(2.0);
+            if (degreesOfFreedom > 2.0) return Double.NEGATIVE_INFINITY;
+            return Double.POSITIVE_INFINITY;
+        }
+        double halfDf = 0.5 * degreesOfFreedom;
+        return -halfDf * Math.log(2.0) - Gamma.lgamma(halfDf)
+            + (halfDf - 1.0) * Math.log(x)
+            - 0.5 * x;
+    }
+
     public double cdf(double x) {
         validateX(x);
         if (Double.isInfinite(x)) {

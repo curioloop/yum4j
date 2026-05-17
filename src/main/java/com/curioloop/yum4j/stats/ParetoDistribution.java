@@ -30,6 +30,22 @@ public value record ParetoDistribution(double scale, double shape) implements Co
         return shape * Math.exp(exponent) / x;
     }
 
+    /**
+     * Direct-formula log-pdf: {@code log(k) + k·log(σ/x) - log(x)} for
+     * {@code x ≥ σ} (here {@code σ = scale, k = shape}).
+     *
+     * <p>Avoids the {@code exp(log(pdf))} round-trip in the default,
+     * preserving accuracy in the far right tail.
+     */
+    @Override
+    public double logPdf(double x) {
+        validateX(x);
+        if (x == Double.POSITIVE_INFINITY || x < scale) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        return Math.log(shape) + shape * Math.log(scale / x) - Math.log(x);
+    }
+
     @Override
     public double cdf(double x) {
         validateX(x);

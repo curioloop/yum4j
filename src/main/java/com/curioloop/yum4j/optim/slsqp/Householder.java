@@ -9,6 +9,8 @@
  */
 package com.curioloop.yum4j.optim.slsqp;
 
+import com.curioloop.yum4j.math.Double3;
+
 /**
  * Householder transformation and Givens rotation utilities.
  * <p>
@@ -201,33 +203,30 @@ final class Householder {
      *
      * @param a      First element (x₁)
      * @param b      Second element (x₂)
-     * @param result Output array of length 3: [c, s, sig] where
-     *               c = cosine of rotation angle,
-     *               s = sine of rotation angle,
-     *               sig = resulting value r = (x₁²+x₂²)^(1/2)
+     * @return       (c, s, sig) where c is the cosine of rotation angle,
+     *               s is the sine of rotation angle, and sig is the resulting
+     *               value r = (x₁²+x₂²)^(1/2)
      */
-    static void g1(double a, double b, double[] result) {
+    static Double3 g1(double a, double b) {
         double xr, yr;
 
         if (Math.abs(a) > Math.abs(b)) {
             /* |x₁| > |x₂|: compute via x₂/x₁ */
             xr = b / a;
             yr = Math.sqrt(1.0 + xr * xr);
-            result[0] = Math.copySign(1.0 / yr, a);  // c
-            result[1] = result[0] * xr;              // s
-            result[2] = Math.abs(a) * yr;            // sig
+            double c = Math.copySign(1.0 / yr, a);
+            double s = c * xr;
+            return new Double3(c, s, Math.abs(a) * yr);
         } else if (b != 0.0) {
             /* |x₂| > 0: compute via x₁/x₂ */
             xr = a / b;
             yr = Math.sqrt(1.0 + xr * xr);
-            result[1] = Math.copySign(1.0 / yr, b);  // s
-            result[0] = result[1] * xr;              // c
-            result[2] = Math.abs(b) * yr;            // sig
+            double s = Math.copySign(1.0 / yr, b);
+            double c = s * xr;
+            return new Double3(c, s, Math.abs(b) * yr);
         } else {
             /* Both zero: identity rotation */
-            result[2] = 0.0;  // sig
-            result[0] = 0.0;  // c
-            result[1] = 1.0;  // s
+            return new Double3(0.0, 1.0, 0.0);
         }
     }
 

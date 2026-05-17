@@ -63,7 +63,7 @@ interface Dtrsl {
      *   <li>b - Contains the solution, if info = 0. Otherwise b is unaltered.</li>
      * </ul>
      *
-     * @param t     the triangular matrix (column-major storage)
+     * @param t     the triangular matrix (row-major storage)
      * @param tOff  offset into array t
      * @param ldt   the leading dimension of the array t
      * @param n     the order of the system

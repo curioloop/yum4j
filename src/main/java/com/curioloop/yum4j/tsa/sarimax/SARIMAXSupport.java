@@ -1,7 +1,7 @@
 package com.curioloop.yum4j.tsa.sarimax;
 
-import com.curioloop.yum4j.kalman.model.StateSpaceModel;
-import com.curioloop.yum4j.linalg.reg.OLS;
+import com.curioloop.yum4j.ssm.kalman.model.KalmanSSM;
+import com.curioloop.yum4j.linalg.Regressor;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -42,7 +42,7 @@ final class SARIMAXSupport {
         int kStates = totalDiff + totalOrder + (stateRegression ? kExog : 0);
         int kPosdef = (totalOrder > 0 ? 1 : 0) + (timeVaryingRegression ? kExog : 0);
 
-        double[][] trendData = buildTrendData(trendPowers, nobs);
+        double[][] trendData = buildTrendData(trendPowers, spec.trendOffset(), nobs);
         String[] parameterNames = buildParameterNames(
             trendPowers,
             stateRegression ? 0 : kExog,
@@ -74,7 +74,7 @@ final class SARIMAXSupport {
             parameterNames,
             null,
             null);
-        StateSpaceModel templateModel = buildTemplateModel(draft);
+        KalmanSSM templateModel = buildTemplateModel(draft);
         double[] startParams = initialParams(draft);
         return new Meta(
             spec,
@@ -119,7 +119,7 @@ final class SARIMAXSupport {
         if (kExog != base.kExog()) {
             throw new IllegalArgumentException("extended exog column count must match the original model");
         }
-        double[][] trendData = buildTrendData(base.trendPowers(), nobs);
+        double[][] trendData = buildTrendData(base.trendPowers(), spec.trendOffset(), nobs);
         Meta draft = new Meta(
             spec,
             endog,
@@ -140,7 +140,7 @@ final class SARIMAXSupport {
             base.parameterNames(),
             base.startParams(),
             null);
-        StateSpaceModel templateModel = buildTemplateModel(draft);
+        KalmanSSM templateModel = buildTemplateModel(draft);
         return new Meta(
             spec,
             endog,
@@ -174,7 +174,7 @@ final class SARIMAXSupport {
         if (meta.kExog() > 0 && workingEndog.length > 0) {
             OLSFit regression = fitOLS(workingEndog, exogenous);
             if (!meta.stateRegression()) {
-                exogParams = Arrays.copyOf(regression.params(), regression.params().length);
+                exogParams = regression.params();
             }
             workingEndog = regression.residuals();
         }
@@ -222,41 +222,24 @@ final class SARIMAXSupport {
         double[] endogenous = Arrays.copyOf(meta.endog(), meta.endog().length);
         double[][] exogenous = copy2d(meta.exog());
         double[][] trend = copy2d(meta.trendData());
+        int offset = 0;
+        int length = endogenous.length;
 
         SeasonalOrder seasonalOrder = meta.spec().seasonalOrder();
         for (int diff = seasonalOrder.integration(); diff > 0; diff--) {
             int period = seasonalOrder.period();
-            for (int index = endogenous.length - 1 - period; index >= 0; index--) {
-                endogenous[index + period] -= endogenous[index];
-            }
-            if (exogenous != null) {
-                for (int index = exogenous.length - 1 - period; index >= 0; index--) {
-                    for (int col = 0; col < exogenous[index].length; col++) {
-                        exogenous[index + period][col] -= exogenous[index][col];
-                    }
-                }
-            }
-            endogenous = Arrays.copyOfRange(endogenous, period, endogenous.length);
-            if (exogenous != null) {
-                exogenous = Arrays.copyOfRange(exogenous, period, exogenous.length);
-            }
+            length = differenceInPlace(endogenous, exogenous, offset, length, period);
+            offset += length == 0 ? 0 : period;
         }
 
         for (int diff = meta.spec().order().integration(); diff > 0; diff--) {
-            for (int index = endogenous.length - 2; index >= 0; index--) {
-                endogenous[index + 1] -= endogenous[index];
-            }
-            if (exogenous != null) {
-                for (int index = exogenous.length - 2; index >= 0; index--) {
-                    for (int col = 0; col < exogenous[index].length; col++) {
-                        exogenous[index + 1][col] -= exogenous[index][col];
-                    }
-                }
-            }
-            endogenous = Arrays.copyOfRange(endogenous, 1, endogenous.length);
-            if (exogenous != null) {
-                exogenous = Arrays.copyOfRange(exogenous, 1, exogenous.length);
-            }
+            length = differenceInPlace(endogenous, exogenous, offset, length, 1);
+            offset += length == 0 ? 0 : 1;
+        }
+
+        endogenous = Arrays.copyOfRange(endogenous, offset, offset + length);
+        if (exogenous != null) {
+            exogenous = Arrays.copyOfRange(exogenous, offset, offset + length);
         }
 
         if (trend != null) {
@@ -348,7 +331,7 @@ final class SARIMAXSupport {
         }
     }
 
-    static StateSpaceModel buildTemplateModel(Meta meta) {
+    static KalmanSSM buildTemplateModel(Meta meta) {
         double[] endog = Arrays.copyOf(meta.endog(), meta.endog().length);
         boolean[] missing = new boolean[endog.length];
         int[] nmissing = new int[meta.nobs()];
@@ -358,7 +341,7 @@ final class SARIMAXSupport {
                 nmissing[t] = 1;
             }
         }
-        return StateSpaceModel.builder(1, meta.kStates(), meta.kPosdef(), meta.nobs())
+        return KalmanSSM.builder(1, meta.kStates(), meta.kPosdef(), meta.nobs())
             .design(initDesign(meta), meta.stateRegression())
             .obsIntercept((!meta.stateRegression() && meta.kExog() > 0) || (meta.kTrend() > 0 && meta.spec().hamiltonRepresentation())
                 ? new double[meta.nobs()]
@@ -533,13 +516,13 @@ final class SARIMAXSupport {
         return true;
     }
 
-    private static double[][] buildTrendData(int[] trendPowers, int nobs) {
+    private static double[][] buildTrendData(int[] trendPowers, int trendOffset, int nobs) {
         if (trendPowers.length == 0) {
             return null;
         }
         double[][] trendData = new double[nobs][trendPowers.length];
         for (int row = 0; row < nobs; row++) {
-            int t = row + 1;
+            int t = row + trendOffset;
             for (int col = 0; col < trendPowers.length; col++) {
                 trendData[row][col] = Math.pow(t, trendPowers[col]);
             }
@@ -558,10 +541,16 @@ final class SARIMAXSupport {
                                                 int exogVarianceCount) {
         ArrayList<String> names = new ArrayList<>();
         for (int power : trendPowers) {
-            names.add("trend[" + power + "]");
+            if (power == 0) {
+                names.add("intercept");
+            } else if (power == 1) {
+                names.add("drift");
+            } else {
+                names.add("trend." + power);
+            }
         }
         for (int index = 0; index < kExog; index++) {
-            names.add("exog[" + index + "]");
+            names.add("x" + (index + 1));
         }
         for (int lag : arLags) {
             names.add("ar.L" + lag);
@@ -570,10 +559,10 @@ final class SARIMAXSupport {
             names.add("ma.L" + lag);
         }
         for (int lag : seasonalArLags) {
-            names.add("seasonalAr.L" + lag);
+            names.add("ar.S.L" + lag);
         }
         for (int lag : seasonalMaLags) {
-            names.add("seasonalMa.L" + lag);
+            names.add("ma.S.L" + lag);
         }
         for (int index = 0; index < exogVarianceCount; index++) {
             names.add((concentrateScale ? "snr.x" : "var.x") + (index + 1));
@@ -662,8 +651,9 @@ final class SARIMAXSupport {
         for (int row = 0; row < n; row++) {
             System.arraycopy(rows[row], 0, x, row * k, k);
         }
-        OLS ols = new OLS(y, x, n, k, false, 0).fit();
-        return new OLSFit(Arrays.copyOf(ols.params(), k), Arrays.copyOf(ols.residual(false), n));
+        var ols = Regressor.ols(y, x, n, k,
+            Regressor.Opts.PINV, Regressor.Opts.NO_CONST, Regressor.Opts.ESTIMATION);
+        return new OLSFit(ols.params(), ols.residual(false));
     }
 
     private static double[][] lagMatrixBoth(double[] series, int maxLag) {
@@ -813,56 +803,48 @@ final class SARIMAXSupport {
                                                   int seasonalPeriod) {
         double[] differencedEndog = Arrays.copyOf(endogenous, endogenous.length);
         double[][] differencedExog = copy2d(exogenous);
+        int offset = 0;
+        int length = differencedEndog.length;
         for (int i = 0; i < seasonalDiff; i++) {
-            differencedEndog = difference(differencedEndog, seasonalPeriod);
-            if (differencedExog != null) {
-                differencedExog = difference(differencedExog, seasonalPeriod);
-            }
+            length = differenceInPlace(differencedEndog, differencedExog, offset, length, seasonalPeriod);
+            offset += length == 0 ? 0 : seasonalPeriod;
         }
         for (int i = 0; i < diff; i++) {
-            differencedEndog = difference(differencedEndog, 1);
-            if (differencedExog != null) {
-                differencedExog = difference(differencedExog, 1);
-            }
+            length = differenceInPlace(differencedEndog, differencedExog, offset, length, 1);
+            offset += length == 0 ? 0 : 1;
+        }
+        differencedEndog = Arrays.copyOfRange(differencedEndog, offset, offset + length);
+        if (differencedExog != null) {
+            differencedExog = Arrays.copyOfRange(differencedExog, offset, offset + length);
         }
         return new DifferencedData(differencedEndog, differencedExog);
     }
 
-    private static double[] difference(double[] values, int lag) {
+    private static int differenceInPlace(double[] endogenous,
+                                         double[][] exogenous,
+                                         int offset,
+                                         int length,
+                                         int lag) {
         if (lag <= 0) {
-            return Arrays.copyOf(values, values.length);
+            return length;
         }
-        if (values.length <= lag) {
-            return new double[0];
+        if (length <= lag) {
+            return 0;
         }
-        double[] differenced = new double[values.length - lag];
-        for (int i = lag; i < values.length; i++) {
-            differenced[i - lag] = values[i] - values[i - lag];
+        int end = offset + length;
+        for (int index = end - 1; index >= offset + lag; index--) {
+            endogenous[index] -= endogenous[index - lag];
         }
-        return differenced;
-    }
-
-    private static double[][] difference(double[][] values, int lag) {
-        if (values == null) {
-            return null;
-        }
-        if (lag <= 0) {
-            return copy2d(values);
-        }
-        if (values.length <= lag) {
-            return new double[0][];
-        }
-        double[][] differenced = new double[values.length - lag][];
-        for (int row = lag; row < values.length; row++) {
-            double[] current = values[row];
-            double[] prior = values[row - lag];
-            double[] delta = new double[current.length];
-            for (int col = 0; col < current.length; col++) {
-                delta[col] = current[col] - prior[col];
+        if (exogenous != null) {
+            for (int row = end - 1; row >= offset + lag; row--) {
+                double[] current = exogenous[row];
+                double[] prior = exogenous[row - lag];
+                for (int col = 0; col < current.length; col++) {
+                    current[col] -= prior[col];
+                }
             }
-            differenced[row - lag] = delta;
         }
-        return differenced;
+        return length - lag;
     }
 
     private static int lastLag(int[] lags) {
@@ -920,7 +902,7 @@ final class SARIMAXSupport {
                 boolean timeVaryingRegression,
                 String[] parameterNames,
                 double[] startParams,
-                StateSpaceModel templateModel) {
+                KalmanSSM templateModel) {
     }
 
     record PreparedData(double[] endog, double[][] exog, double[][] trend) {
@@ -938,6 +920,11 @@ final class SARIMAXSupport {
             if (matrix.length < matrixLength) {
                 matrix = new double[matrixLength];
             }
+        }
+
+        void release() {
+            reflection = new double[0];
+            matrix = new double[0];
         }
     }
 

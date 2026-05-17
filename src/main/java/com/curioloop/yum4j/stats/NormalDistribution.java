@@ -4,17 +4,25 @@ import com.curioloop.yum4j.math.Double2;
 
 import com.curioloop.yum4j.math.Normal;
 
+import java.util.random.RandomGenerator;
+
 /**
  * Boost-style normal distribution object with unified PDF/CDF/quantile access.
  */
 public value record NormalDistribution(double mean, double standardDeviation) implements ContinuousDistribution {
+
+    /** -0.5 * log(2π) */
+    private static final double LOG_INV_SQRT_2PI = -0.5 * Math.log(2.0 * Math.PI);
+
+    /** 1 / √(2π) */
+    private static final double INV_SQRT_2PI = 1.0 / Math.sqrt(2.0 * Math.PI);
 
     public NormalDistribution() {
         this(0.0, 1.0);
     }
 
     public NormalDistribution {
-        if (!(standardDeviation > 0.0) || Double.isNaN(standardDeviation)) {
+        if (!(standardDeviation > 0.0)) {
             throw new IllegalArgumentException(
                 "standardDeviation must be greater than 0.0: " + standardDeviation
             );
@@ -85,6 +93,64 @@ public value record NormalDistribution(double mean, double standardDeviation) im
 
     private double standardize(double x) {
         return (x - mean) / standardDeviation;
+    }
+
+    // ---------------------------------------------------------------
+    // Batch / Sampling specialisations (particle-filter hot path)
+    // ---------------------------------------------------------------
+
+    /**
+     * Numerically-stable log-pdf using the cached
+     * {@code -0.5 * log(2π) - log σ} normaliser and a single
+     * {@code z = (x - μ) / σ} computation.
+     */
+    @Override
+    public double logPdf(double x) {
+        double sigma = standardDeviation;
+        double z = (x - mean) / sigma;
+        return LOG_INV_SQRT_2PI - Math.log(sigma) - 0.5 * z * z;
+    }
+
+    @Override
+    public void batch(Metric metric,
+                        double[] x, int xOff, int xStride, int n,
+                        double[] out, int outOff) {
+        if (n == 0) return;
+        final double mu = mean;
+        final double sigma = standardDeviation;
+        final double invSigma = 1.0 / sigma;
+        switch (metric) {
+            case LOG_PDF -> {
+                final double logNormaliser = LOG_INV_SQRT_2PI - Math.log(sigma);
+                for (int i = 0; i < n; i++) {
+                    double z = (x[xOff + i * xStride] - mu) * invSigma;
+                    out[outOff + i] = logNormaliser - 0.5 * z * z;
+                }
+            }
+            case PDF -> {
+                final double normaliser = INV_SQRT_2PI / sigma;
+                for (int i = 0; i < n; i++) {
+                    double z = (x[xOff + i * xStride] - mu) * invSigma;
+                    out[outOff + i] = normaliser * Math.exp(-0.5 * z * z);
+                }
+            }
+            default -> ContinuousDistribution.super.batch(metric, x, xOff, xStride, n, out, outOff);
+        }
+    }
+
+    @Override
+    public double sample(RandomGenerator g) {
+        return mean + standardDeviation * g.nextGaussian();
+    }
+
+    @Override
+    public void sample(RandomGenerator g, int n, double[] out, int off, int stride) {
+        if (n == 0) return;
+        final double mu = mean;
+        final double sigma = standardDeviation;
+        for (int i = 0; i < n; i++) {
+            out[off + i * stride] = mu + sigma * g.nextGaussian();
+        }
     }
 
     private static double standardQuantile(double probability) {

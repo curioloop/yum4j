@@ -50,6 +50,26 @@ public value record InverseGaussianDistribution(double mean, double scale) imple
             * Math.exp(-scale * (x - mean) * (x - mean) / (2.0 * x * mean * mean));
     }
 
+    /**
+     * Direct-formula log-pdf:
+     * {@code 0.5·log(λ/(2π)) - 1.5·log(x) - λ·(x-μ)²/(2·x·μ²)}
+     * where {@code λ = scale, μ = mean}.
+     *
+     * <p>Both tails underflow in the {@code pdf}-based default; the
+     * direct form stays accurate throughout.
+     */
+    @Override
+    public double logPdf(double x) {
+        validateX(x);
+        if (x == 0.0 || x == Double.POSITIVE_INFINITY) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        double diff = x - mean;
+        return 0.5 * (Math.log(scale) - Math.log(2.0 * Math.PI))
+            - 1.5 * Math.log(x)
+            - scale * diff * diff / (2.0 * x * mean * mean);
+    }
+
     @Override
     public double cdf(double x) {
         validateX(x);

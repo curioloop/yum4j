@@ -18,7 +18,7 @@ import static java.lang.Math.sqrt;
  *
  * <p>Data layout: same as {@link OLS} — X is row-major n×k.
  * <b>X is overwritten in-place</b> (scaled by sqrt(w)) before being passed to the solver.
- * y is never modified; the whitened copy ỹ is held in {@link Pool#yWhiten}.
+ * y is never modified; the whitened copy ỹ is kept in {@link Pool}.
  * After the solver, fitted and residual are unscaled back to the original scale.
  */
 public class WLS extends OLS {
@@ -29,29 +29,13 @@ public class WLS extends OLS {
     // Pool
     // =========================================================================
 
-    /**
-     * Reusable workspace for WLS computations.
-     *
-     * <p>Extends {@link OLS.Pool} with one WLS-specific buffer:
-     * <ul>
-     *   <li>{@code yWhiten} — whitened ỹ = √W·y, length n</li>
-     * </ul>
-     * whitened X̃ = √W·X is scaled in-place (same as OLS). The inherited {@code fitted}/{@code residual}
-     * buffers hold the <em>unwhitened</em> ŷ = X·β̂ and e = y - ŷ.
-     */
     public static class Pool extends OLS.Pool {
-
-        public double[] yWhiten; // ỹ = √W·y, length n
+        public double[] yWhiten; // ỹ = √W·y
 
         public Pool() {}
 
-        @Override
-        public Pool ensure(int n, int k) {
-            if (yWhiten == null || yWhiten.length < n)            yWhiten = new double[n];
-            if (beta == null || beta.length < k)                  beta = new double[k];
-            if (unscaledCov == null || unscaledCov.length < k*k)  unscaledCov = new double[k*k];
-            if (fitted   == null || fitted.length   < n) fitted   = new double[n];
-            if (residual == null || residual.length < n) residual = new double[n];
+        public Pool ensureWhiten(int n) {
+            if (yWhiten == null || yWhiten.length < n) yWhiten = new double[n];
             return this;
         }
     }
@@ -61,7 +45,11 @@ public class WLS extends OLS {
     // =========================================================================
 
     public WLS(double[] y, double[] X, double[] weights, int n, int k, boolean useQR, int kConst) {
-        super(y, X, n, k, useQR, kConst);
+        this(y, X, weights, n, k, useQR, kConst, OUTPUT_FULL);
+    }
+
+    public WLS(double[] y, double[] X, double[] weights, int n, int k, boolean useQR, int kConst, int outputMask) {
+        super(y, X, n, k, useQR, kConst, outputMask);
         if (weights.length < n) throw new IllegalArgumentException("weights too short");
         this.w = weights;
     }
@@ -86,7 +74,7 @@ public class WLS extends OLS {
     /**
      * Fits the model with workspace reuse.
      *
-     * <p>Scales X in-place by sqrt(w) and writes ỹ into {@code ws.yWhiten},
+     * <p>Scales X in-place by sqrt(w) and writes ỹ into the workspace,
      * then delegates to the OLS solver on the whitened system.
      * After the solver, fitted and residual are divided by sqrt(w) to restore
      * the original scale. <b>X is overwritten.</b>
@@ -100,13 +88,27 @@ public class WLS extends OLS {
         return fitInternal(ws == null ? new Pool() : ws);
     }
 
+    @Override
+    public WLS.Pool pool() {
+        return (WLS.Pool) pool;
+    }
+
     private WLS fitInternal(Pool ws) {
-        ws.ensure(nObs, nParams);
+        pool = ws;
+        if (needsParams()) ws.ensureParams(nParams);
+        if (needsFitness()) ws.ensureFitness(nObs);
+        if (needsCovariance()) ws.ensureCovariance(nParams);
         if (kConst < 0) kConst = detectConst(X, nObs, nParams, ws);
+        ws.ensureWhiten(nObs);
         whiten(ws.yWhiten, nObs, nParams);
-        if (useQR) solveQR(ws.yWhiten, X, ws);
-        else       solveSVD(ws.yWhiten, X, ws);
-        unwhitenFittedResidual(ws, nObs);
+        if (useQR) {
+            if (needsFitness()) solveQR(ws.yWhiten, X, ws);
+            else                solveQRParamsOnly(ws.yWhiten, X, ws);
+        } else {
+            if (needsFitness()) solveSVD(ws.yWhiten, X, ws);
+            else                solveSVDParamsOnly(ws.yWhiten, X, ws);
+        }
+        if (needsFitness()) unwhitenFittedResidual(ws, nObs);
         return this;
     }
 
@@ -124,7 +126,7 @@ public class WLS extends OLS {
     }
 
     // After OLS solver: divide fitted/residual by sqrt(w[i]) to restore original scale
-    private void unwhitenFittedResidual(Pool ws, int n) {
+    private void unwhitenFittedResidual(OLS.Pool ws, int n) {
         for (int i = 0; i < n; i++) {
             double invSqrtW = 1.0 / sqrt(w[i]);
             ws.fitted[i]   *= invSqrtW;

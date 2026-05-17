@@ -3,6 +3,7 @@ package com.curioloop.yum4j.stats;
 import com.curioloop.yum4j.math.Double2;
 
 import com.curioloop.yum4j.math.Beta;
+import com.curioloop.yum4j.math.Gamma;
 
 /**
  * Boost-style Fisher F distribution object with unified PDF/CDF/quantile access.
@@ -51,6 +52,40 @@ public value record FisherFDistribution(double degreesOfFreedom1, double degrees
         double y = betaTransform(x);
         return Beta.ibetaDerivative(0.5 * degreesOfFreedom1, 0.5 * degreesOfFreedom2, y)
             * betaTransformDerivative(x);
+    }
+
+    /**
+     * Direct-formula log-pdf:
+     * {@code (d1/2)·log(d1/d2) + (d1/2 - 1)·log(x)
+     *        - ((d1+d2)/2)·log1p(d1·x/d2) - logBeta(d1/2, d2/2)}.
+     *
+     * <p>Preserves accuracy in the far right tail where the
+     * {@code (1 + d1·x/d2)^(-(d1+d2)/2)} factor in {@link #pdf(double)}
+     * underflows to zero.
+     */
+    @Override
+    public double logPdf(double x) {
+        validateX(x);
+        if (Double.isInfinite(x)) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        if (x == 0.0) {
+            if (degreesOfFreedom1 > 2.0) {
+                return Double.NEGATIVE_INFINITY;
+            }
+            if (degreesOfFreedom1 == 2.0) {
+                return 0.0;
+            }
+            return Double.POSITIVE_INFINITY;
+        }
+        double half1 = 0.5 * degreesOfFreedom1;
+        double half2 = 0.5 * degreesOfFreedom2;
+        double ratio = degreesOfFreedom1 / degreesOfFreedom2;
+        double logBeta = Gamma.lgamma(half1) + Gamma.lgamma(half2) - Gamma.lgamma(half1 + half2);
+        return half1 * Math.log(ratio)
+            + (half1 - 1.0) * Math.log(x)
+            - (half1 + half2) * Math.log1p(ratio * x)
+            - logBeta;
     }
 
     public double cdf(double x) {

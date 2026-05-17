@@ -2,6 +2,8 @@ package com.curioloop.yum4j.stats;
 
 import com.curioloop.yum4j.math.Double2;
 
+import java.util.random.RandomGenerator;
+
 /** Boost-style Laplace distribution with location and scale parameters. */
 public value record LaplaceDistribution(double location, double scale) implements ContinuousDistribution {
 
@@ -144,6 +146,78 @@ public value record LaplaceDistribution(double location, double scale) implement
     private static void validateProbability(double probability) {
         if (!Double.isFinite(probability) || probability < 0.0 || probability > 1.0) {
             throw new IllegalArgumentException("probability must be in [0, 1]: " + probability);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Batch / Sampling specialisations (particle-filter hot path)
+    // ---------------------------------------------------------------
+
+    /**
+     * {@code logPdf(x) = -|x - loc| / scale - log(2 * scale)}.
+     */
+    @Override
+    public double logPdf(double x) {
+        if (Double.isInfinite(x)) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        double s = scale;
+        return -Math.abs(x - location) / s - Math.log(2.0 * s);
+    }
+
+    @Override
+    public void batch(Metric metric, double[] x, int xOff, int xStride, int n,
+                            double[] out, int outOff) {
+        if (n == 0) return;
+        switch (metric) {
+            case LOG_PDF -> {
+                final double mu = location;
+                final double s = scale;
+                final double invScale = 1.0 / s;
+                final double logNormaliser = -Math.log(2.0 * s);
+                for (int i = 0; i < n; i++) {
+                    double xi = x[xOff + i * xStride];
+                    if (Double.isInfinite(xi)) {
+                        out[outOff + i] = Double.NEGATIVE_INFINITY;
+                        continue;
+                    }
+                    out[outOff + i] = logNormaliser - Math.abs(xi - mu) * invScale;
+                }
+            }
+            case PDF -> {
+                final double mu = location;
+                final double b = scale;
+                final double normaliser = 0.5 / b;
+                final double invB = 1.0 / b;
+                for (int i = 0; i < n; i++) {
+                    double xi = x[xOff + i * xStride];
+                    out[outOff + i] = normaliser * Math.exp(-Math.abs(xi - mu) * invB);
+                }
+            }
+            default -> ContinuousDistribution.super.batch(metric, x, xOff, xStride, n, out, outOff);
+        }
+    }
+
+    /**
+     * Inverse-CDF sampling: {@code u = U(0,1) - 0.5;
+     * x = loc - scale * sign(u) * log(1 - 2|u|)}.
+     */
+    @Override
+    public double sample(RandomGenerator g) {
+        double u = g.nextDouble() - 0.5;
+        double sign = u < 0.0 ? -1.0 : 1.0;
+        return location - scale * sign * Math.log1p(-2.0 * Math.abs(u));
+    }
+
+    @Override
+    public void sample(RandomGenerator g, int n, double[] out, int off, int stride) {
+        if (n == 0) return;
+        final double mu = location;
+        final double s = scale;
+        for (int i = 0; i < n; i++) {
+            double u = g.nextDouble() - 0.5;
+            double sign = u < 0.0 ? -1.0 : 1.0;
+            out[off + i * stride] = mu - s * sign * Math.log1p(-2.0 * Math.abs(u));
         }
     }
 }

@@ -3,8 +3,9 @@
  */
 package com.curioloop.yum4j.optim.slsqp;
 
-import com.curioloop.yum4j.optim.Univariate;
 import com.curioloop.yum4j.optim.Bound;
+import com.curioloop.yum4j.optim.Optimization;
+import com.curioloop.yum4j.optim.Univariate;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 import org.openjdk.jmh.runner.Runner;
@@ -118,7 +119,10 @@ public class SLSQPBenchmark {
 
     @Benchmark
     public void slsqp(Blackhole bh) {
-        bh.consume(problem.solve(workspace));
+        Optimization result = problem.solve(workspace);
+        bh.consume(result.status().ordinal());
+        bh.consume(result.iterations());
+        bh.consume(result.cost());
     }
 
     public static void main(String[] args) throws RunnerException {

@@ -8,12 +8,13 @@ import static java.lang.Math.*;
 import com.curioloop.yum4j.linalg.blas.BLAS;
 import com.curioloop.yum4j.linalg.reg.OLS;
 import com.curioloop.yum4j.linalg.reg.Prediction;
+import com.curioloop.yum4j.math.VectorOps;
 
 /**
- * Statistical result of an OLS or WLS fit.
+ * Statistical result of an OLS, WLS, or GLS fit.
  *
  * <p>All quantities are computed lazily and cached on first access.
- * Subclasses ({@link OLS}, {@link com.curioloop.yum4j.linalg.reg.WLS}) extend this class
+ * Subclasses extend this class
  * and populate the solver outputs ({@code beta}, {@code unscaledCov}, {@code rank}, {@code cond})
  * during {@code fit()}.
  *
@@ -31,16 +32,13 @@ import com.curioloop.yum4j.linalg.reg.Prediction;
  *   <li>{@link #predict(double[], int, double[])} — prediction with confidence intervals</li>
  * </ul>
  */
-public abstract class Regression {
+public abstract class Regression implements com.curioloop.yum4j.stats.tool.InformationCriterion {
 
-    // ---- solver outputs (populated by OLS/WLS.fit) ----
+    // ---- solver outputs (populated by fit) ----
     protected double[] beta;        // parameter estimates β̂, length k
     protected double[] unscaledCov; // (XᵀX)⁻¹ or (RᵀR)⁻¹, k×k row-major
     protected int      rank;        // numerical rank of X
     protected double   cond;        // condition number √(σ_max²/σ_min²)
-
-    // ---- pool reference (set on first fit) ----
-    private OLS.Pool pool;
 
     // ---- fitted/residual: set by solver via setFittedResidualCache ----
     private double[] fitted;
@@ -56,7 +54,7 @@ public abstract class Regression {
     private double tssCen = Double.NaN;
     private double llf    = Double.NaN;
 
-    // ---- abstract accessors (implemented by OLS/WLS) ----
+    // ---- abstract accessors ----
 
     public abstract int      nObs();
     public abstract int      nParams();
@@ -73,7 +71,6 @@ public abstract class Regression {
      * Called once per fit, inside the solver, after those buffers are written.
      */
     protected void setFittedResidualCache(OLS.Pool ws) {
-        this.pool     = ws;
         this.fitted   = ws.fitted;
         this.residual = ws.residual;
         // invalidate whitened and scalar caches
@@ -85,32 +82,13 @@ public abstract class Regression {
         this.llf    = Double.NaN;
     }
 
-    /**
-     * Returns the workspace pool bound to this model after the first {@code fit()}.
-     * Returns {@code null} if the model has not been fitted yet.
-     */
-    public OLS.Pool pool() { return pool; }
-
-    /**
-     * Pre-allocates a {@link OLS.Pool} sized for this model's dimensions.
-     *
-     * <p>Pass the returned pool to every {@code fit()} call for zero per-fit allocations.
-     *
-     * <pre>{@code
-     * OLS.Pool ws = model.alloc();
-     * for (double[] Xi : series) {
-     *     model.fit(ws);
-     * }
-     * }</pre>
-     */
-    public OLS.Pool alloc() {
-        return new OLS.Pool();
-    }
-
     // ---- parameters ----
 
     /** Parameter estimates β̂ (length k). */
-    public double[] params() { return beta; }
+    public double[] params() {
+        if (beta == null) throw unavailable("parameter estimates");
+        return beta;
+    }
 
     /** Numerical rank of X. */
     public int rank() { return rank; }
@@ -128,8 +106,10 @@ public abstract class Regression {
     public double[] fitted(boolean whiten) {
         double[] w = weights();
         if (!whiten || w == null) {
+            if (fitted == null) throw unavailable("fitted values");
             return fitted;
         } else {
+            if (fitted == null) throw unavailable("fitted values");
             if (whitenFitted == null) {
                 int n = nObs();
                 whitenFitted = new double[n];
@@ -147,8 +127,10 @@ public abstract class Regression {
     public double[] residual(boolean whiten) {
         double[] w = weights();
         if (!whiten || w == null) {
+            if (residual == null) throw unavailable("residuals");
             return residual;
         } else {
+            if (residual == null) throw unavailable("residuals");
             if (whitenResidual == null) {
                 int n = nObs();
                 whitenResidual = new double[n];
@@ -187,9 +169,7 @@ public abstract class Regression {
             if (w != null) {
                 mean = BLAS.ddot(n, w, 0, 1, y, 0, 1) / BLAS.dasum(n, w, 0, 1);
             } else {
-                double sum = 0;
-                for (int i = 0; i < n; i++) sum += y[i];
-                mean = sum / n;
+                mean = VectorOps.mean(y, 0, n);
             }
         }
 
@@ -197,7 +177,7 @@ public abstract class Regression {
         if (w != null) {
             for (int i = 0; i < n; i++) { double d = y[i] - mean; s += w[i] * d * d; }
         } else if (centered) {
-            for (int i = 0; i < n; i++) { double d = y[i] - mean; s += d * d; }
+            s = VectorOps.sumSq(y, 0, n, mean);
         } else {
             s = BLAS.ddot(n, y, 0, 1, y, 0, 1);
         }
@@ -223,6 +203,7 @@ public abstract class Regression {
      * Returns a new array each call.
      */
     public double[] paramCov() {
+        if (unscaledCov == null) throw unavailable("parameter covariance");
         double[] cov = unscaledCov.clone();
         BLAS.dscal(cov.length, scale(), cov, 0, 1);
         return cov;
@@ -230,6 +211,7 @@ public abstract class Regression {
 
     /** Standard errors of parameter estimates: bse = √diag(Cov(β̂)). */
     public double[] bse() {
+        if (unscaledCov == null) throw unavailable("standard errors");
         double s = scale();
         int k = nParams();
         double[] se = new double[k];
@@ -286,15 +268,11 @@ public abstract class Regression {
         return llf;
     }
 
-    /** AIC = -2·llf + 2·(dfModel + kConst). */
-    public double aic() {
-        return -2.0 * logLike() + 2.0 * (dfModel() + kConst());
-    }
+    // ---- InformationCriterion interface ----
 
-    /** BIC = -2·llf + log(n)·(dfModel + kConst). */
-    public double bic() {
-        return -2.0 * logLike() + log(nObs()) * (dfModel() + kConst());
-    }
+    @Override public double logLikelihood() { return logLike(); }
+    @Override public int observationCount() { return nObs(); }
+    @Override public int parameterCount()   { return dfModel() + kConst(); }
 
     // ---- prediction ----
 
@@ -307,6 +285,109 @@ public abstract class Regression {
      * @return {@link Prediction} containing mean, paramVar, residualVar
      */
     public Prediction predict(double[] newX, int m, double[] weights) {
+        if (unscaledCov == null) throw unavailable("prediction covariance");
         return new Prediction(newX, unscaledCov, beta, scale(), weights, m, nParams(), dfResidual());
     }
+
+    private static IllegalStateException unavailable(String quantity) {
+        return new IllegalStateException(quantity + " are not available for this regression output selection");
+    }
+
+    // =========================================================================
+    // Diagnostics — t/F statistics, confidence intervals
+    // =========================================================================
+
+    private double[] tStats;
+    private double[] tPVals;
+    private double   fStat = Double.NaN;
+    private double   fPVal = Double.NaN;
+    private double   dw    = Double.NaN;
+
+    /** t-statistics: tᵢ = β̂ᵢ / bseᵢ. */
+    public double[] tStatistics() {
+        if (tStats == null) {
+            double[] b = params(), se = bse();
+            tStats = new double[b.length];
+            for (int i = 0; i < b.length; i++) tStats[i] = b[i] / se[i];
+        }
+        return tStats;
+    }
+
+    /** Two-tailed p-values from Student's t(df_residual). */
+    public double[] tPValues() {
+        if (tPVals == null) {
+            double[] t = tStatistics();
+            int df = dfResidual();
+            var dist = new com.curioloop.yum4j.stats.StudentsTDistribution(df);
+            tPVals = new double[t.length];
+            for (int i = 0; i < t.length; i++) tPVals[i] = 2.0 * dist.ccdf(abs(t[i]));
+        }
+        return tPVals;
+    }
+
+    /** F-statistic for overall model significance: F = MSE_model / MSE_residual. */
+    public double fStatistic() {
+        if (Double.isNaN(fStat)) {
+            if (dfModel() == 0) { fStat = Double.NaN; }
+            else { double[] m = mse(); fStat = m[0] / m[1]; }
+        }
+        return fStat;
+    }
+
+    /** p-value of the F-statistic from F(df_model, df_residual). */
+    public double fPValue() {
+        if (Double.isNaN(fPVal)) {
+            double f = fStatistic();
+            if (Double.isNaN(f) || dfModel() == 0) { fPVal = Double.NaN; }
+            else { fPVal = new com.curioloop.yum4j.stats.FisherFDistribution(dfModel(), dfResidual()).ccdf(f); }
+        }
+        return fPVal;
+    }
+
+    /**
+     * Confidence intervals for each parameter.
+     *
+     * @param alpha significance level (e.g. 0.05 for 95% CI)
+     * @return row-major k×2 array: [lower₀, upper₀, lower₁, upper₁, ...]
+     */
+    public double[] confInt(double alpha) {
+        double[] b = params(), se = bse();
+        int k = b.length;
+        double tCrit = new com.curioloop.yum4j.stats.StudentsTDistribution(dfResidual())
+                .quantileUpperTail(alpha / 2.0);
+        double[] ci = new double[k * 2];
+        for (int i = 0; i < k; i++) {
+            double hw = tCrit * se[i];
+            ci[i * 2]     = b[i] - hw;
+            ci[i * 2 + 1] = b[i] + hw;
+        }
+        return ci;
+    }
+
+    /** 95% confidence intervals (α = 0.05). */
+    public double[] confInt() { return confInt(0.05); }
+
+    // =========================================================================
+    // Diagnostics — Durbin-Watson, Jarque-Bera, Omnibus
+    // =========================================================================
+
+
+    /** Durbin-Watson statistic on whitened residuals. */
+    public double durbinWatson() {
+        if (Double.isNaN(dw)) {
+            dw = com.curioloop.yum4j.stats.test.DurbinWatson.test(residual(true));
+        }
+        return dw;
+    }
+
+    /** Jarque-Bera normality test on whitened residuals. */
+    public com.curioloop.yum4j.stats.test.JarqueBera jarqueBera() {
+        return com.curioloop.yum4j.stats.test.JarqueBera.test(residual(true));
+    }
+
+    /** D'Agostino-Pearson omnibus normality test on whitened residuals. */
+    public com.curioloop.yum4j.stats.test.Omnibus omnibus() {
+        return com.curioloop.yum4j.stats.test.Omnibus.test(residual(true));
+    }
+
 }

@@ -1,0 +1,3 @@
+# Placeholder so Maven's build-helper-maven-plugin has a directory to register
+# when the `jmh` profile is active. Benchmark classes for particle-v2-perf will
+# land here in tasks 1.2 and 1.3.

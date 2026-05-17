@@ -38,6 +38,25 @@ public value record RayleighDistribution(double sigma) implements ContinuousDist
         return x * Math.exp(-(x * x) / (2.0 * sigmaSquared)) / sigmaSquared;
     }
 
+    /**
+     * Direct-formula log-pdf: {@code log(x) - x²/(2σ²) - 2·log(σ)}.
+     *
+     * <p>Preserves accuracy in the far right tail where
+     * {@code exp(-x²/(2σ²))} underflows to zero.
+     */
+    @Override
+    public double logPdf(double x) {
+        validateX(x);
+        if (x == Double.POSITIVE_INFINITY) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        if (x == 0.0) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        double sigmaSquared = sigma * sigma;
+        return Math.log(x) - (x * x) / (2.0 * sigmaSquared) - 2.0 * Math.log(sigma);
+    }
+
     @Override
     public double cdf(double x) {
         validateX(x);

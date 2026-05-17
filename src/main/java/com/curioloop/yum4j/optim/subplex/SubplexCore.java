@@ -74,6 +74,7 @@ final class SubplexCore {
     private static final double OMEGA = 0.1;   // minimum step size scale factor
     private static final int NSMIN = 2;         // minimum subspace dimension
     private static final int NSMAX = 5;         // maximum subspace dimension
+    private static final int SORT_QUICK_MIN_N = 64;
 
     private SubplexCore() {}
 
@@ -313,18 +314,64 @@ final class SubplexCore {
 
     /**
      * Sorts permutation indices by decreasing |dx[perm[i]]|.
-     * Uses insertion sort — N is typically moderate.
+     * Uses insertion sort for small dimensions and primitive quicksort for larger problems.
      */
     private static void sortPermByDx(int[] perm, double[] dx, int n) {
-        for (int i = 1; i < n; i++) {
+        if (n < SORT_QUICK_MIN_N) {
+            insertionSortPermByDx(perm, dx, 0, n - 1);
+        } else {
+            quickSortPermByDx(perm, dx, 0, n - 1);
+        }
+    }
+
+    private static void quickSortPermByDx(int[] perm, double[] dx, int left, int right) {
+        while (right - left > 24) {
+            int i = left;
+            int j = right;
+            int pivotIndex = perm[(left + right) >>> 1];
+            double pivotValue = Math.abs(dx[pivotIndex]);
+            while (i <= j) {
+                while (greaterAbsDx(dx, perm[i], pivotValue, pivotIndex)) i++;
+                while (lessAbsDx(dx, perm[j], pivotValue, pivotIndex)) j--;
+                if (i <= j) {
+                    int tmp = perm[i];
+                    perm[i] = perm[j];
+                    perm[j] = tmp;
+                    i++;
+                    j--;
+                }
+            }
+            if (j - left < right - i) {
+                if (left < j) quickSortPermByDx(perm, dx, left, j);
+                left = i;
+            } else {
+                if (i < right) quickSortPermByDx(perm, dx, i, right);
+                right = j;
+            }
+        }
+        insertionSortPermByDx(perm, dx, left, right);
+    }
+
+    private static void insertionSortPermByDx(int[] perm, double[] dx, int left, int right) {
+        for (int i = left + 1; i <= right; i++) {
             int key = perm[i];
             double keyVal = Math.abs(dx[key]);
             int j = i - 1;
-            while (j >= 0 && Math.abs(dx[perm[j]]) < keyVal) {
+            while (j >= left && lessAbsDx(dx, perm[j], keyVal, key)) {
                 perm[j + 1] = perm[j];
                 j--;
             }
             perm[j + 1] = key;
         }
+    }
+
+    private static boolean greaterAbsDx(double[] dx, int leftIndex, double rightValue, int rightIndex) {
+        double leftValue = Math.abs(dx[leftIndex]);
+        return leftValue > rightValue || (leftValue == rightValue && leftIndex < rightIndex);
+    }
+
+    private static boolean lessAbsDx(double[] dx, int leftIndex, double rightValue, int rightIndex) {
+        double leftValue = Math.abs(dx[leftIndex]);
+        return leftValue < rightValue || (leftValue == rightValue && leftIndex > rightIndex);
     }
 }

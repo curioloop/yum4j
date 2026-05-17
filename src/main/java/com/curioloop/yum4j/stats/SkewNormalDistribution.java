@@ -40,6 +40,26 @@ public value record SkewNormalDistribution(double location, double scale, double
         return 2.0 * Normal.pdf(z) * Normal.cdf(shape * z) / scale;
     }
 
+    /**
+     * Direct-formula log-pdf:
+     * {@code log(2) + logφ(z) + logΦ(α·z) - log(σ)}
+     * with {@code z = (x - μ)/σ}.
+     *
+     * <p>Uses {@link Normal#logPdf(double)} and {@link Normal#logCdf(double)}
+     * to preserve accuracy in the far left tail (where {@code Φ(αz)}
+     * underflows for {@code αz ≪ 0}) and the far right tail
+     * (where {@code φ(z)} underflows for {@code |z|} large).
+     */
+    @Override
+    public double logPdf(double x) {
+        validateX(x);
+        if (Double.isInfinite(x)) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        double z = (x - location) / scale;
+        return Math.log(2.0) + Normal.logPdf(z) + Normal.logCdf(shape * z) - Math.log(scale);
+    }
+
     @Override
     public double cdf(double x) {
         validateX(x);

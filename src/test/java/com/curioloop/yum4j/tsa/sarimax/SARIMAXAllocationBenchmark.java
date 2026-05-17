@@ -1,10 +1,10 @@
 package com.curioloop.yum4j.tsa.sarimax;
 
-import com.curioloop.yum4j.kalman.filter.FilterResult;
-import com.curioloop.yum4j.kalman.filter.FilterSpec;
-import com.curioloop.yum4j.kalman.mle.MLECovariance;
-import com.curioloop.yum4j.kalman.smooth.SmootherResult;
-import com.curioloop.yum4j.kalman.smooth.SmootherSpec;
+import com.curioloop.yum4j.ssm.kalman.filter.FilterOptions;
+import com.curioloop.yum4j.ssm.kalman.filter.FilterResult;
+import com.curioloop.yum4j.ssm.kalman.mle.MLEResults;
+import com.curioloop.yum4j.ssm.kalman.smooth.SmootherOptions;
+import com.curioloop.yum4j.ssm.kalman.smooth.SmootherResult;
 import com.curioloop.yum4j.optim.Optimization;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -52,13 +52,16 @@ public class SARIMAXAllocationBenchmark {
     private double[] ar1Params;
     private double[] integratedMa1Params;
     private double[] airlineParams;
-    private SmootherSpec stateOnlySmootherSpec;
+    private double[] simpleDifferencedAirlineData;
+    private SmootherOptions stateOnlySmootherOptions;
 
     @Setup
     public void setup() {
         ar1Params = new double[]{0.62, 0.35};
         integratedMa1Params = new double[]{0.41, 0.24};
         airlineParams = new double[]{0.38, 0.27, 0.18};
+        simpleDifferencedAirlineData = generateAirlineLike(airlineParams[0], airlineParams[1], Math.sqrt(airlineParams[2]),
+            nobs, 2026050304L);
 
         ar1 = new SARIMAX(SARIMAXSpec.builder(ARIMAOrder.of(1, 0, 0),
             generateAr1(ar1Params[0], Math.sqrt(ar1Params[1]), nobs, 2026050301L)).build());
@@ -68,9 +71,11 @@ public class SARIMAXAllocationBenchmark {
                 generateAirlineLike(airlineParams[0], airlineParams[1], Math.sqrt(airlineParams[2]), nobs, 2026050303L))
             .seasonalOrder(SeasonalOrder.of(0, 1, 1, 12))
             .build());
-        stateOnlySmootherSpec = SmootherSpec.conventional().stateOnly();
+        stateOnlySmootherOptions = SmootherOptions.builder()
+            .retainOnly(SmootherOptions.Surface.STATE)
+            .build();
 
-        FilterResult filterResult = ar1.filter(ar1Params, FilterSpec.full());
+        FilterResult filterResult = ar1.filter(ar1Params, FilterOptions.defaults());
         Optimization optimization = new Optimization(
             Double.NaN,
             ar1Params.clone(),
@@ -84,7 +89,7 @@ public class SARIMAXAllocationBenchmark {
             ar1Params.clone(),
             ar1.untransformParams(ar1Params),
             filterResult,
-            MLECovariance.OPG);
+            MLEResults.Covariance.OPG);
     }
 
     @Benchmark
@@ -93,13 +98,38 @@ public class SARIMAXAllocationBenchmark {
     }
 
     @Benchmark
+    public SARIMAXResults ar1ResultsCopyFilterResult() {
+        FilterResult filterResult = ar1.filter(ar1Params, FilterOptions.defaults());
+        return new SARIMAXResults(
+            ar1,
+            optimization(ar1Params, filterResult),
+            ar1Params.clone(),
+            ar1.untransformParams(ar1Params),
+            filterResult,
+            MLEResults.Covariance.OPG);
+    }
+
+    @Benchmark
+    public SARIMAXResults ar1ResultsAdoptFilterResult() {
+        FilterResult filterResult = ar1.filter(ar1Params, FilterOptions.defaults());
+        return SARIMAXResults.adoptFilterResult(
+            ar1,
+            optimization(ar1Params, filterResult),
+            ar1Params.clone(),
+            ar1.untransformParams(ar1Params),
+            filterResult,
+            MLEResults.Covariance.OPG,
+            null);
+    }
+
+    @Benchmark
     public FilterResult ar1FilterFull() {
-        return ar1.filter(ar1Params, FilterSpec.full());
+        return ar1.filter(ar1Params, FilterOptions.defaults());
     }
 
     @Benchmark
     public SmootherResult ar1SmoothStateOnly() {
-        return ar1.smooth(ar1Params, stateOnlySmootherSpec);
+        return ar1.smooth(ar1Params, stateOnlySmootherOptions);
     }
 
     @Benchmark
@@ -113,6 +143,27 @@ public class SARIMAXAllocationBenchmark {
     }
 
     @Benchmark
+    public SARIMAXResults airlineResultsAdoptFilterResult() {
+        FilterResult filterResult = airline.filter(airlineParams, FilterOptions.defaults());
+        return SARIMAXResults.adoptFilterResult(
+            airline,
+            optimization(airlineParams, filterResult),
+            airlineParams.clone(),
+            airline.untransformParams(airlineParams),
+            filterResult,
+            MLEResults.Covariance.OPG,
+            null);
+    }
+
+    @Benchmark
+    public SARIMAX simpleDifferencedAirlineModel() {
+        return new SARIMAX(SARIMAXSpec.builder(ARIMAOrder.of(0, 1, 1), simpleDifferencedAirlineData)
+            .seasonalOrder(SeasonalOrder.of(0, 1, 1, 12))
+            .simpleDifferencing(true)
+            .build());
+    }
+
+    @Benchmark
     public SARIMAXPrediction predictInSample() {
         int end = Math.min(nobs - 1, Math.max(0, nobs / 2));
         return ar1Results.predict(0, end);
@@ -122,7 +173,12 @@ public class SARIMAXAllocationBenchmark {
     public SARIMAXPrediction predictOutOfSampleDynamic() {
         int start = Math.max(0, nobs - 16);
         int end = nobs + 12;
-        return ar1Results.predict(start, end, true, null);
+        return ar1Results.predict(start, end, start, null);
+    }
+
+    @Benchmark
+    public SARIMAXPrediction forecastOutOfSample() {
+        return ar1Results.forecast(12, null);
     }
 
     private static double[] generateAr1(double phi, double sigma, int length, long seed) {
@@ -134,6 +190,16 @@ public class SARIMAXAllocationBenchmark {
             values[i] = state;
         }
         return values;
+    }
+
+    private static Optimization optimization(double[] params, FilterResult filterResult) {
+        return new Optimization(
+            Double.NaN,
+            params.clone(),
+            -filterResult.logLikelihood(),
+            Optimization.Status.GRADIENT_TOLERANCE_REACHED,
+            0,
+            0);
     }
 
     private static double[] generateIntegratedMa1(double theta, double sigma, int length, long seed) {
