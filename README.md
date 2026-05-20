@@ -17,8 +17,8 @@ The name is intentionally simple: **Yet Useful Math**. The useful parts include:
 - **Root finding**: Brentq (1-D), HYBR and Broyden (N-D) via `RootFinder`
 - **Numerical integration**: adaptive GK15, fixed Gauss-Legendre, double-exponential (tanh-sinh / exp-sinh / sinh-sinh), oscillatory, improper, endpoint-singular, Cauchy principal value, Filon, and sampled-data quadrature via `Integrator`
 - **ODE solvers**: adaptive explicit RK (RK23, RK45, DOP853) and implicit stiff solvers (BDF, Radau IIA) with dense output, event detection, and workspace reuse via `Integrator.ode()`
-- **Statistics and inference**: OLS and WLS with SVD/QR solvers, full statistical output via `Regressor`
-- **State-space and time series**: Kalman-oriented layouts and SARIMAX modeling foundations
+- **Statistics and inference**: OLS and WLS with SVD/QR solvers, full statistical output via `Regressor`, and Pearson/Spearman/Kendall correlation tests
+- **State-space and time series**: Kalman-oriented layouts, SARIMAX modeling foundations, Engle-Granger/Johansen cointegration tests, and Granger causality tests
 - **Matrix decompositions**: LU, QR, LQ, SVD, Cholesky/LDL^T, Schur, Eigen, GEVD, GGEVD, GSVD via `Decomposer`
 - **Transforms**: complex FFT, real FFT, DCT, and DST with NumPy-compatible APIs; zero-allocation pool mode for hot paths; pocketfft-based mixed-radix, split-radix, and Bluestein algorithms
 - **Reusable workspaces** for low-allocation, high-frequency numerical workloads

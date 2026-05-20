@@ -32,6 +32,7 @@ public record Coint(double statistic, double pValue, Double3 critValues) {
     public static Coint test(double[] y0, double[] y1, int n, int k, TrendTerms trend,
                              Integer maxLag, ADF.AutoLag autoLag) {
         if (y0.length != n) throw new IllegalArgumentException("y0 length must equal n");
+        TestSupport.checkVector(y0, "y0");
         TestSupport.checkMatrix(y1, n, k, "y1");
         TrendTerms tr = trend == null ? TrendTerms.CONSTANT : trend;
         int firstStageK = k + tr.term();

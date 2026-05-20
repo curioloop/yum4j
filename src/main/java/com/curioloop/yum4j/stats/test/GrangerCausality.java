@@ -1,6 +1,8 @@
 package com.curioloop.yum4j.stats.test;
 
 import com.curioloop.yum4j.linalg.Regressor;
+import com.curioloop.yum4j.linalg.blas.BLAS;
+import com.curioloop.yum4j.math.VectorOps;
 import com.curioloop.yum4j.stats.ChiSquareDistribution;
 import com.curioloop.yum4j.stats.FisherFDistribution;
 
@@ -18,11 +20,21 @@ import static com.curioloop.yum4j.linalg.Regressor.Opts.PINV;
  */
 public record GrangerCausality(Lag[] lags) {
 
+    private static final double INFEASIBLE_EPS = Math.ulp(1.0);
+
     public record Lag(int lag,
                       double ssrFStat, double ssrFPValue, int ssrFDfDenom, int ssrFDfNum,
                       double ssrChi2Stat, double ssrChi2PValue, int ssrChi2Df,
                       double lrStat, double lrPValue, int lrDf,
                       double paramsFStat, double paramsFPValue, int paramsFDfDenom, int paramsFDfNum) {}
+
+    public static GrangerCausality test(double[] dependent, double[] causing, int maxLag) {
+        return test(twoColumn(dependent, causing), dependent.length, maxLag);
+    }
+
+    public static GrangerCausality test(double[] dependent, double[] causing, int... lags) {
+        return test(twoColumn(dependent, causing), dependent.length, lags);
+    }
 
     public static GrangerCausality test(double[] x, int n, int maxLag) {
         if (maxLag <= 0) throw new IllegalArgumentException("maxLag must be positive");
@@ -78,6 +90,7 @@ public record GrangerCausality(Lag[] lags) {
 
         var restricted = Regressor.ols(y, restrictedX, rows, lag + 1, PINV, FITNESS);
         var unrestricted = Regressor.ols(y, unrestrictedX, rows, 2 * lag + 1, PINV, FITNESS);
+        checkFeasible(y, rows, restrictedX, lag, unrestrictedX, 2 * lag, restricted.ssr(), unrestricted.ssr());
         int dfDenom = rows - unrestricted.rank();
         double ssrF = TestSupport.restrictedF(restricted.ssr(), unrestricted.ssr(), lag, rows, unrestricted.rank());
         double ssrFP = Double.isFinite(ssrF) && dfDenom > 0 ? new FisherFDistribution(lag, dfDenom).ccdf(ssrF) : Double.NaN;
@@ -89,5 +102,47 @@ public record GrangerCausality(Lag[] lags) {
                 ssrChi2, ssrChi2P, lag,
                 lr, lrP, lag,
                 ssrF, ssrFP, dfDenom, lag);
+    }
+
+    private static double[] twoColumn(double[] dependent, double[] causing) {
+        if (dependent.length != causing.length) {
+            throw new IllegalArgumentException("dependent and causing lengths must match");
+        }
+        double[] out = new double[dependent.length * 2];
+        BLAS.dcopy(dependent.length, dependent, 0, 1, out, 0, 2);
+        BLAS.dcopy(causing.length, causing, 0, 1, out, 1, 2);
+        return out;
+    }
+
+    private static void checkFeasible(double[] y, int rows,
+                                      double[] restrictedX, int restrictedColumnsWithoutConstant,
+                                      double[] unrestrictedX, int unrestrictedColumnsWithoutConstant,
+                                      double restrictedSsr, double unrestrictedSsr) {
+        double totalSumSquares = centeredSumSquares(y, rows);
+        if (totalSumSquares == 0.0 || restrictedSsr == 0.0 || unrestrictedSsr == 0.0
+                || unrestrictedSsr / totalSumSquares < INFEASIBLE_EPS
+                || hasConstantColumn(restrictedX, rows, restrictedColumnsWithoutConstant, restrictedColumnsWithoutConstant + 1)
+                || hasConstantColumn(unrestrictedX, rows, unrestrictedColumnsWithoutConstant, unrestrictedColumnsWithoutConstant + 1)) {
+            throw new IllegalArgumentException("Granger causality test is infeasible because the regression has a perfect fit or constant column");
+        }
+    }
+
+    private static double centeredSumSquares(double[] values, int length) {
+        return VectorOps.sumSq(values, 0, length, VectorOps.mean(values, 0, length));
+    }
+
+    private static boolean hasConstantColumn(double[] matrix, int rows, int columnsToCheck, int totalColumns) {
+        for (int column = 0; column < columnsToCheck; column++) {
+            double first = matrix[column];
+            boolean constant = true;
+            for (int row = 1; row < rows; row++) {
+                if (matrix[row * totalColumns + column] != first) {
+                    constant = false;
+                    break;
+                }
+            }
+            if (constant) return true;
+        }
+        return false;
     }
 }

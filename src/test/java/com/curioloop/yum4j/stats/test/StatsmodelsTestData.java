@@ -20,6 +20,8 @@ final class StatsmodelsTestData {
 
     record DiagnosticFixture(double[] y, double[] exog, double[] residual) {}
 
+    record MatrixData(double[] data, int rows, int columns) {}
+
     static Map<String, double[]> macrodata() {
         return loadColumnarResource("statsmodels/datasets/macrodata/macrodata.csv", ',');
     }
@@ -30,6 +32,34 @@ final class StatsmodelsTestData {
             return loadColumnarResource(resource, delimiter);
         }
         return loadColumnarPath(referenceDatasetPath(path), delimiter);
+    }
+
+    static MatrixData whitespaceMatrixResource(String resource, int columns) {
+        try (InputStream stream = StatsmodelsTestData.class.getClassLoader().getResourceAsStream(resource)) {
+            if (stream == null) throw new IllegalArgumentException("resource not found: " + resource);
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream))) {
+                List<double[]> rows = new ArrayList<>();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    String trimmed = line.trim();
+                    if (trimmed.isEmpty()) continue;
+                    String[] parts = trimmed.split("\\s+");
+                    if (parts.length != columns) {
+                        throw new IllegalArgumentException("expected " + columns + " columns in " + resource);
+                    }
+                    double[] row = new double[columns];
+                    for (int column = 0; column < columns; column++) row[column] = Double.parseDouble(parts[column]);
+                    rows.add(row);
+                }
+                double[] data = new double[rows.size() * columns];
+                for (int row = 0; row < rows.size(); row++) {
+                    System.arraycopy(rows.get(row), 0, data, row * columns, columns);
+                }
+                return new MatrixData(data, rows.size(), columns);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("cannot load resource: " + resource, e);
+        }
     }
 
     static DiagnosticFixture diagnosticFixture() {
