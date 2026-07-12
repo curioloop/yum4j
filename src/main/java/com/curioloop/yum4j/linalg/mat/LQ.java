@@ -102,12 +102,7 @@ public final class LQ implements Decomposition {
 
     /**
      * Solves the minimum-norm system {@code A*x = b} for a wide or square matrix.
-     *
-    * <p>To minimize allocations, this method uses {@code b} as a working buffer and may
-    * overwrite it. Pass a distinct {@code x} buffer if the original right-hand side must be
-    * preserved.</p>
-     *
-     * @param b right-hand side vector of length at least {@code m}
+     * @param b right-hand side vector of length at least {@code m}; overwritten as workspace
      * @param x destination vector of length at least {@code n}; may be {@code null}
      * @return the minimum-norm solution vector {@code x}
      * @throws IllegalStateException if the decomposition is unavailable
@@ -129,8 +124,14 @@ public final class LQ implements Decomposition {
             throw new ArithmeticException("LQ factor is singular");
         }
 
-        BLAS.dset(n, 0.0, x, 0, 1);
-        BLAS.dcopy(m, rhs, 0, 1, x, 0, 1);
+        if (x == b) {
+            if (n > m) {
+                BLAS.dset(n - m, 0.0, x, m, 1);
+            }
+        } else {
+            BLAS.dset(n, 0.0, x, 0, 1);
+            BLAS.dcopy(m, rhs, 0, 1, x, 0, 1);
+        }
 
         int result = BLAS.dormlq(BLAS.Side.Left, BLAS.Trans.Trans, n, 1, m, LQ, 0, n,
             pool.tau, 0, x, 0, 1, pool.work(), 0, pool.work().length);
@@ -143,12 +144,7 @@ public final class LQ implements Decomposition {
 
     /**
      * Solves the transpose system {@code A^T*x = b} in the least-squares sense.
-     *
-    * <p>To minimize allocations, this method uses {@code b} as a working buffer and may
-    * overwrite it. Pass a distinct {@code x} buffer if the original right-hand side must be
-    * preserved.</p>
-     *
-     * @param b right-hand side vector of length at least {@code n}
+     * @param b right-hand side vector of length at least {@code n}; overwritten as workspace
      * @param x destination vector of length at least {@code m}; may be {@code null}
      * @return the solution vector {@code x}
      * @throws IllegalStateException if the decomposition is unavailable
@@ -166,14 +162,14 @@ public final class LQ implements Decomposition {
         requireWellConditioned();
         double[] rhs = b;
 
-    int result = BLAS.dormlq(BLAS.Side.Left, BLAS.Trans.NoTrans, n, 1, m, LQ, 0, n,
-        pool.tau, 0, rhs, 0, 1, pool.work(), 0, pool.work().length);
-    if (result != 0) {
-        throw new IllegalStateException("Failed to apply Q with dormlq status=" + result);
-    }
+        int result = BLAS.dormlq(BLAS.Side.Left, BLAS.Trans.NoTrans, n, 1, m, LQ, 0, n,
+            pool.tau, 0, rhs, 0, 1, pool.work(), 0, pool.work().length);
+        if (result != 0) {
+            throw new IllegalStateException("Failed to apply Q with dormlq status=" + result);
+        }
 
-    if (!BLAS.dtrtrs(BLAS.Uplo.Lower, BLAS.Trans.Trans, BLAS.Diag.NonUnit,
-        m, 1, LQ, 0, n, rhs, 0, 1)) {
+        if (!BLAS.dtrtrs(BLAS.Uplo.Lower, BLAS.Trans.Trans, BLAS.Diag.NonUnit,
+            m, 1, LQ, 0, n, rhs, 0, 1)) {
             throw new ArithmeticException("LQ factor is singular");
         }
 

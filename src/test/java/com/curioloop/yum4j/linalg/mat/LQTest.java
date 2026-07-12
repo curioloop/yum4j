@@ -85,6 +85,26 @@ class LQTest {
     }
 
     @Test
+    void testSolveCanUseBAsDestination() {
+        double[] A = {
+            2.0, 1.0, 1.0,
+            1.0, 3.0, 2.0
+        };
+        double[] b = {4.0, 5.0, 99.0};
+        double rhs0 = b[0];
+        double rhs1 = b[1];
+
+        LQ lq = LQ.decompose(A, 2, 3);
+        assertThat(lq.ok()).isTrue();
+
+        double[] x = lq.solve(b, b);
+
+        assertThat(x).isSameAs(b);
+        assertThat(2.0 * x[0] + 1.0 * x[1] + 1.0 * x[2]).isCloseTo(rhs0, offset(EPSILON));
+        assertThat(1.0 * x[0] + 3.0 * x[1] + 2.0 * x[2]).isCloseTo(rhs1, offset(EPSILON));
+    }
+
+    @Test
     void testSolveTranspose() {
         double[] A = {
             1.0, 2.0, 3.0,

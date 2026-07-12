@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2025 curioloop. All rights reserved.
  *
- * JMH micro-benchmark: TRFCore.qrfac (optimized) vs qrfacOrig (original column-stride).
+ * JMH micro-benchmark: LMCore.qrfac (optimized) vs qrfacOrig (original column-stride).
  *
  * Run with:
  *   mvn test-compile exec:java -Dexec.mainClass=org.openjdk.jmh.Main \
@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit;
 import static com.curioloop.yum4j.optim.trf.TRFConstants.EPSMCH;
 
 /**
- * Compares optimized {@link TRFCore#qrfac} (row-major norm scan + row-major Householder)
+ * Compares optimized {@link LMCore#qrfac} (row-major norm scan + row-major Householder)
  * against the original column-stride implementation on Jacobian-sized matrices:
  *
  * <ul>
@@ -73,7 +73,7 @@ public class QrfacBenchmark {
 
     /**
      * Original MINPACK column-stride qrfac (baseline for comparison).
-     * Identical algorithm to TRFCore.qrfac before the row-major optimization.
+      * Identical algorithm to LMCore.qrfac before the row-major optimization.
      */
     static void qrfacOrig(int m, int n, double[] a, int[] ipvt,
                           double[] rdiag, double[] acnorm, double[] wa) {
@@ -134,7 +134,7 @@ public class QrfacBenchmark {
     @Benchmark
     public double[] small_opt() {
         double[] A = A_small.clone();
-        TRFCore.qrfac(SM, SN, A, ipvt_s, rdiag_s, 0, acnorm_s, 0, wa_s, 0, dot_s, 0);
+        LMCore.qrfac(SM, SN, A, ipvt_s, rdiag_s, 0, acnorm_s, 0, wa_s, 0, dot_s, 0);
         return A;
     }
 
@@ -150,7 +150,7 @@ public class QrfacBenchmark {
     @Benchmark
     public double[] medium_opt() {
         double[] A = A_medium.clone();
-        TRFCore.qrfac(MM, MN, A, ipvt_m, rdiag_m, 0, acnorm_m, 0, wa_m, 0, dot_m, 0);
+        LMCore.qrfac(MM, MN, A, ipvt_m, rdiag_m, 0, acnorm_m, 0, wa_m, 0, dot_m, 0);
         return A;
     }
 
@@ -166,7 +166,7 @@ public class QrfacBenchmark {
     @Benchmark
     public double[] large_opt() {
         double[] A = A_large.clone();
-        TRFCore.qrfac(LM, LN, A, ipvt_l, rdiag_l, 0, acnorm_l, 0, wa_l, 0, dot_l, 0);
+        LMCore.qrfac(LM, LN, A, ipvt_l, rdiag_l, 0, acnorm_l, 0, wa_l, 0, dot_l, 0);
         return A;
     }
 
@@ -182,7 +182,7 @@ public class QrfacBenchmark {
     @Benchmark
     public double[] xlarge_opt() {
         double[] A = A_xlarge.clone();
-        TRFCore.qrfac(XM, XN, A, ipvt_x, rdiag_x, 0, acnorm_x, 0, wa_x, 0, dot_x, 0);
+        LMCore.qrfac(XM, XN, A, ipvt_x, rdiag_x, 0, acnorm_x, 0, wa_x, 0, dot_x, 0);
         return A;
     }
 

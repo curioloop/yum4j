@@ -5,6 +5,8 @@ package com.curioloop.yum4j.linalg.blas.cmplx;
 
 import com.curioloop.yum4j.linalg.blas.BLAS;
 
+import java.util.Arrays;
+
 interface Ztrevc {
 
     static void ztrevc(char side, char howmny, int n,
@@ -47,14 +49,18 @@ interface Ztrevc {
             }
         }
 
+        // Per-column eigenvector scratch, reused across all columns (and both the
+        // right and left passes) instead of allocating a fresh n*2 array per column.
+        // Cleared per column to preserve the original fresh-zero-buffer semantics.
+        double[] v = new double[n * 2];
+
         if (rightv) {
             for (int j = 0; j < n; j++) {
                 double smin = Math.max(ulp * Math.hypot(T[tOff + (j * ldt + j) * 2], T[tOff + (j * ldt + j) * 2 + 1]),
                         smlnum);
 
-                double[] v = new double[n * 2];
+                Arrays.fill(v, 0, n * 2, 0.0);
                 v[j * 2] = 1.0;
-                v[j * 2 + 1] = 0.0;
 
                 for (int i = j - 1; i >= 0; i--) {
                     double tr_re = T[tOff + (i * ldt + i) * 2];
@@ -129,9 +135,8 @@ interface Ztrevc {
                 double smin = Math.max(ulp * Math.hypot(T[tOff + (j * ldt + j) * 2], T[tOff + (j * ldt + j) * 2 + 1]),
                         smlnum);
 
-                double[] v = new double[n * 2];
+                Arrays.fill(v, 0, n * 2, 0.0);
                 v[j * 2] = 1.0;
-                v[j * 2 + 1] = 0.0;
 
                 for (int i = j + 1; i < n; i++) {
                     double ti_re = T[tOff + (i * ldt + i) * 2];

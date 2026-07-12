@@ -62,7 +62,6 @@
  */
 package com.curioloop.yum4j.optim.trf;
 
-import com.curioloop.yum4j.linalg.blas.BLAS;
 import com.curioloop.yum4j.optim.Bound;
 import com.curioloop.yum4j.optim.Multivariate;
 import com.curioloop.yum4j.optim.Optimization;
@@ -74,22 +73,12 @@ import static com.curioloop.yum4j.optim.trf.TRFConstants.*;
 
 /**
  * Core algorithm implementation for Trust Region Reflective (TRF) optimization.
- * All methods are package-private static. Fully independent of {@code LMCore}.
+ * Reuses {@link LMCore} for MINPACK-style QR, {@code qrsolv}, and {@code lmpar}.
  * The solution is written back into the caller-supplied {@code x} array in-place.
  */
 final class TRFCore {
 
-    private static final int QRFAC_TRAILING_SCALAR_MIN_N = 8;
-    private static final int QRFAC_TRAILING_BLAS_MIN_N = 64;
-
     private TRFCore() {}
-
-    // ── Linear algebra helpers ────────────────────────────────────────────────
-
-    /** Euclidean norm of {@code a[off..off+n-1]}. */
-    static double enorm(int n, double[] a, int off) {
-        return BLAS.dnrm2(n, a, off, 1);
-    }
 
     /** Clips {@code x[0..n-1]} to box constraints. No-op if bounds is null. */
     static void applyBounds(double[] x, Bound[] bounds, int n) {
@@ -100,358 +89,6 @@ final class TRFCore {
             if (b.hasLower()) x[i] = Math.max(x[i], b.lower());
             if (b.hasUpper()) x[i] = Math.min(x[i], b.upper());
         }
-    }
-
-    /**
-     * Column-pivoted QR factorization: A·P = Q·R (unblocked Householder).
-     *
-     * <p>Given m × n matrix A, computes the factorization:</p>
-     * <pre>
-     *   A·P = Q·R
-     * </pre>
-     * <p>where:</p>
-     * <ul>
-     *   <li>P is an n × n column permutation matrix (stored as ipvt)</li>
-     *   <li>Q is an m × m orthogonal matrix (stored implicitly in lower triangle of A)</li>
-     *   <li>R is an m × n upper triangular matrix (stored in upper triangle of A)</li>
-     * </ul>
-     *
-     * <p>Column pivoting ensures |R₁₁| ≥ |R₂₂| ≥ ··· ≥ |Rₖₖ| which improves
-     * numerical stability and enables rank determination.</p>
-     *
-     * <p>Identical algorithm to LMCore.qrfac but operates on TRF arrays.</p>
-     *
-     * @param m      number of rows in A
-     * @param n      number of columns in A
-     * @param a      matrix A (row-major m×n), modified in place to store Q and R
-     * @param ipvt   output: column permutation P (length n)
-     * @param rdiag  output: diagonal of R (length n)
-     * @param acnorm output: column norms of original A (length n)
-     * @param wa     scratch array (length n)
-     * @param tmp    scratch array of length n (reuses ws.qtf before applyQtToVec)
-     * @param tmpOff offset into tmp[]
-     */
-    static void qrfac(int m, int n, double[] a, int[] ipvt,
-                      double[] rdiag, int rdiagOff,
-                      double[] acnorm, int acnormOff,
-                      double[] wa, int waOff,
-                      double[] tmp, int tmpOff) {
-        for (int j = 0; j < n; j++) { acnorm[acnormOff+j] = 0.0; rdiag[rdiagOff+j] = 0.0; }
-        for (int i = 0; i < m; i++) {
-            int rowBase = i * n;
-            for (int j = 0; j < n; j++) { double v = a[rowBase + j]; acnorm[acnormOff+j] += v * v; }
-        }
-        for (int j = 0; j < n; j++) {
-            acnorm[acnormOff+j] = Math.sqrt(acnorm[acnormOff+j]);
-            rdiag[rdiagOff+j]   = acnorm[acnormOff+j];
-            wa[waOff+j]         = rdiag[rdiagOff+j];
-            ipvt[j]             = j;
-        }
-
-        int minmn = Math.min(m, n);
-        for (int j = 0; j < minmn; j++) {
-            int kmax = j;
-            for (int k = j + 1; k < n; k++) if (rdiag[rdiagOff+k] > rdiag[rdiagOff+kmax]) kmax = k;
-            if (kmax != j) {
-                for (int i = 0; i < m; i++) {
-                    int base = i * n;
-                    double t = a[base + j]; a[base + j] = a[base + kmax]; a[base + kmax] = t;
-                }
-                rdiag[rdiagOff+kmax] = rdiag[rdiagOff+j]; wa[waOff+kmax] = wa[waOff+j];
-                int itmp = ipvt[j]; ipvt[j] = ipvt[kmax]; ipvt[kmax] = itmp;
-            }
-
-            double ajnorm = 0.0;
-            for (int i = j; i < m; i++) { double v = a[i * n + j]; ajnorm += v * v; }
-            ajnorm = Math.sqrt(ajnorm);
-            if (ajnorm == 0.0) { rdiag[rdiagOff+j] = 0.0; continue; }
-            if (a[j * n + j] < 0.0) ajnorm = -ajnorm;
-            BLAS.dscal(m - j, 1.0 / ajnorm, a, j * n + j, n);
-            a[j * n + j] += 1.0;
-
-            int nk = n - j - 1;
-            if (nk > 0) {
-                int tmpBase = tmpOff + j + 1;
-                Arrays.fill(tmp, tmpBase, tmpOff + n, 0.0);
-                if (nk >= QRFAC_TRAILING_SCALAR_MIN_N && nk < QRFAC_TRAILING_BLAS_MIN_N) {
-                    for (int i = j; i < m; i++) {
-                        double vij = a[i * n + j];
-                        int rowBase = i * n + j + 1;
-                        for (int k = 0; k < nk; k++) {
-                            tmp[tmpBase + k] = Math.fma(vij, a[rowBase + k], tmp[tmpBase + k]);
-                        }
-                    }
-                    double invAjj = 1.0 / a[j * n + j];
-                    for (int k = 0; k < nk; k++) tmp[tmpBase + k] *= invAjj;
-                    for (int i = j; i < m; i++) {
-                        double vij = a[i * n + j];
-                        int rowBase = i * n + j + 1;
-                        for (int k = 0; k < nk; k++) {
-                            a[rowBase + k] = Math.fma(-vij, tmp[tmpBase + k], a[rowBase + k]);
-                        }
-                    }
-                } else {
-                    for (int i = j; i < m; i++) {
-                        double vij = a[i * n + j];
-                        int rowBase = i * n + j + 1;
-                        BLAS.daxpy(nk, vij, a, rowBase, 1, tmp, tmpBase, 1);
-                    }
-                    BLAS.dscal(nk, 1.0 / a[j * n + j], tmp, tmpBase, 1);
-                    for (int i = j; i < m; i++) {
-                        double vij = a[i * n + j];
-                        int rowBase = i * n + j + 1;
-                        BLAS.daxpy(nk, -vij, tmp, tmpBase, 1, a, rowBase, 1);
-                    }
-                }
-                for (int k = j + 1; k < n; k++) {
-                    if (rdiag[rdiagOff+k] != 0.0) {
-                        double t = a[j * n + k] / rdiag[rdiagOff+k];
-                        rdiag[rdiagOff+k] *= Math.sqrt(Math.max(0.0, 1.0 - t * t));
-                        if (0.05 * (rdiag[rdiagOff+k] / wa[waOff+k]) * (rdiag[rdiagOff+k] / wa[waOff+k]) <= EPSMCH) {
-                            double s2 = 0.0;
-                            for (int i = j + 1; i < m; i++) { double v = a[i * n + k]; s2 += v * v; }
-                            rdiag[rdiagOff+k] = Math.sqrt(s2); wa[waOff+k] = rdiag[rdiagOff+k];
-                        }
-                    }
-                }
-            }
-            rdiag[rdiagOff+j] = -ajnorm;
-        }
-    }
-
-    /**
-     * Applies Qᵀ to vector b in-place, then restores the R diagonal.
-     *
-     * <p>Given the Householder factors stored in the lower triangle of fjac
-     * (as produced by qrfac), applies the accumulated orthogonal transformation:</p>
-     * <pre>
-     *   b ← Qᵀb
-     * </pre>
-     * <p>After application, restores the diagonal of R from rdiag so that
-     * fjac contains the upper triangular R in its upper triangle.</p>
-     *
-     * @param fjac  Jacobian factor (row-major m×n), lower triangle holds Householder vectors
-     * @param m     number of rows
-     * @param n     number of columns
-     * @param b     vector to transform in place (length m)
-     * @param rdiag diagonal of R (length n), restored into fjac diagonal on exit
-     */
-    static void applyQtToVec(double[] fjac, int m, int n, double[] b, double[] rdiag, int rdiagOff) {
-        int minmn = Math.min(m, n);
-        for (int j = 0; j < minmn; j++) {
-            if (fjac[j*n+j] == 0.0) { fjac[j*n+j] = rdiag[rdiagOff+j]; continue; }
-            double sum = 0.0;
-            for (int i = j; i < m; i++) sum += fjac[i*n+j] * b[i];
-            double tmp = -sum / fjac[j*n+j];
-            BLAS.daxpy(m - j, tmp, fjac, j * n + j, n, b, j, 1);
-            fjac[j*n+j] = rdiag[rdiagOff+j];
-        }
-    }
-
-    /**
-     * Solves the augmented least-squares system via Givens rotations (qrsolv).
-     *
-     * <p>Given the QR factorization A·P = Q·R, solves the augmented system:</p>
-     * <pre>
-     *   min ‖[ R  ] x - [ Qᵀb ]‖₂
-     *       ‖[ D  ]     [  0  ]‖
-     * </pre>
-     * <p>where D = diag(d₁, ..., dₙ) is a diagonal matrix. This is equivalent to
-     * solving the normal equations (RᵀR + DᵀD)x = Rᵀ(Qᵀb).</p>
-     *
-     * <p>The algorithm uses Givens rotations to zero out the diagonal elements of D
-     * one at a time, updating R and Qᵀb accordingly. The resulting upper triangular
-     * system is then solved by back-substitution.</p>
-     *
-     * @param n      number of variables
-     * @param r      upper triangular R (n×n, row-major), modified in place
-     * @param ipvt   column permutation from qrfac (length n)
-     * @param diag   diagonal scaling D (length n)
-     * @param qtb    Qᵀb vector (length n)
-     * @param x      output: solution vector (length n)
-     * @param sdiag  output: diagonal of the modified R after Givens rotations (length n)
-     * @param wa     scratch array (length n)
-     */
-    static void qrsolv(int n, double[] r, int rOff, int[] ipvt, double[] diag,
-                       double[] qtb, int qtbOff, double[] x, int xOff, double[] sdiag, int sdiagOff,
-                       double[] wa) {
-        for (int j = 0; j < n; j++) {
-            for (int i = j; i < n; i++) r[rOff+i*n+j] = r[rOff+j*n+i];
-            x[xOff+j] = r[rOff+j*n+j];
-            wa[j]     = qtb[qtbOff+j];
-        }
-        for (int j = 0; j < n; j++) {
-            int l = ipvt[j];
-            if (diag[l] == 0.0) { sdiag[sdiagOff+j] = r[rOff+j*n+j]; r[rOff+j*n+j] = x[xOff+j]; continue; }
-            for (int k = j; k < n; k++) sdiag[sdiagOff+k] = 0.0;
-            sdiag[sdiagOff+j] = diag[l];
-            double qtbpj = 0.0;
-            for (int k = j; k < n; k++) {
-                if (sdiag[sdiagOff+k] == 0.0) continue;
-                double cos, sin;
-                if (Math.abs(r[rOff+k*n+k]) >= Math.abs(sdiag[sdiagOff+k])) {
-                    double tan = sdiag[sdiagOff+k] / r[rOff+k*n+k];
-                    cos = 0.5 / Math.sqrt(0.25 + 0.25*tan*tan);
-                    sin = cos * tan;
-                } else {
-                    double cotan = r[rOff+k*n+k] / sdiag[sdiagOff+k];
-                    sin = 0.5 / Math.sqrt(0.25 + 0.25*cotan*cotan);
-                    cos = sin * cotan;
-                }
-                r[rOff+k*n+k] = cos*r[rOff+k*n+k] + sin*sdiag[sdiagOff+k];
-                double temp = cos*wa[k] + sin*qtbpj;
-                qtbpj = -sin*wa[k] + cos*qtbpj;
-                wa[k] = temp;
-                for (int i = k+1; i < n; i++) {
-                    temp              =  cos*r[rOff+i*n+k] + sin*sdiag[sdiagOff+i];
-                    sdiag[sdiagOff+i] = -sin*r[rOff+i*n+k] + cos*sdiag[sdiagOff+i];
-                    r[rOff+i*n+k]     = temp;
-                }
-            }
-            sdiag[sdiagOff+j] = r[rOff+j*n+j];
-            r[rOff+j*n+j] = x[xOff+j];
-        }
-        int nsing = n;
-        for (int j = 0; j < n; j++) {
-            if (sdiag[sdiagOff+j] == 0.0 && nsing == n) nsing = j;
-            if (nsing < n) wa[j] = 0.0;
-        }
-        for (int k = 0; k < nsing; k++) {
-            int j = nsing - 1 - k;
-            double sum = 0.0;
-            for (int i = j+1; i < nsing; i++) sum += r[rOff+i*n+j] * wa[i];
-            wa[j] = (wa[j] - sum) / sdiag[sdiagOff+j];
-        }
-        for (int j = 0; j < n; j++) x[xOff+ipvt[j]] = wa[j];
-    }
-
-    /**
-     * Finds the Levenberg-Marquardt parameter λ such that ‖D·p(λ)‖₂ ≈ Δ (lmpar).
-     *
-     * <p>Given the QR factorization A·P = Q·R, finds λ ≥ 0 such that the solution p
-     * to the augmented system:</p>
-     * <pre>
-     *   (RᵀR + λDᵀD)p = -Rᵀ(Qᵀf)
-     * </pre>
-     * <p>satisfies ‖D·p‖₂ ≈ Δ (the trust-region radius).</p>
-     *
-     * <p>The algorithm uses a Newton iteration on the secular equation:</p>
-     * <pre>
-     *   φ(λ) = 1/‖D·p(λ)‖₂ - 1/Δ = 0
-     * </pre>
-     * <p>starting from a bracket [λₗ, λᵤ] determined by the Gershgorin bounds.</p>
-     *
-     * <p>Special cases:</p>
-     * <ul>
-     *   <li>If ‖D·p(0)‖₂ ≤ Δ (unconstrained solution is feasible), returns λ = 0</li>
-     *   <li>If rank(R) &lt; n (singular), uses the minimum-norm solution</li>
-     * </ul>
-     *
-     * @param n      number of variables
-     * @param r      upper triangular R (n×n, row-major), modified in place by qrsolv
-     * @param ipvt   column permutation from qrfac (length n)
-     * @param diag   diagonal scaling D (length n)
-     * @param qtb    Qᵀf vector (length n)
-     * @param delta  trust-region radius Δ
-     * @param par    initial estimate of λ (updated on return)
-     * @param x      output: solution p(λ) (length n, starting at xOff)
-     * @param xOff   offset into x[]
-     * @param sdiag  scratch: modified diagonal from qrsolv (length n)
-     * @param wa1    scratch array (length n)
-     * @param wa2    scratch array (length n)
-     * @return       updated Levenberg-Marquardt parameter λ
-     */
-    static double lmpar(int n, double[] r, int rOff, int[] ipvt,
-                        double[] diag, int diagOff,
-                        double[] qtb, int qtbOff,
-                        double delta, double par,
-                        double[] x, int xOff,
-                        double[] sdiag, int sdiagOff,
-                        double[] wa1,
-                        double[] wa2) {
-        final double dwarf = Double.MIN_VALUE;
-        final double p1 = 0.1, p001 = 0.001;
-
-        int nsing = n;
-        System.arraycopy(qtb, qtbOff, wa1, 0, n);
-        for (int j = 0; j < n; j++) {
-            if (r[rOff+j*n+j] == 0.0 && nsing == n) nsing = j;
-            if (nsing < n) wa1[j] = 0.0;
-        }
-        for (int k = 0; k < nsing; k++) {
-            int j = nsing - 1 - k;
-            wa1[j] /= r[rOff+j*n+j];
-            double tmp = wa1[j];
-            for (int i = 0; i < j; i++) wa1[i] -= r[rOff+i*n+j] * tmp;
-        }
-        for (int j = 0; j < n; j++) x[xOff+ipvt[j]] = wa1[j];
-
-        int iter = 0;
-        for (int j = 0; j < n; j++) wa2[j] = diag[diagOff+j] * x[xOff+j];
-        double dxnorm = enorm(n, wa2, 0);
-        double fp = dxnorm - delta;
-        if (fp <= p1 * delta) { if (iter == 0) par = 0.0; return par; }
-
-        double parl = 0.0;
-        if (nsing >= n) {
-            for (int j = 0; j < n; j++) {
-                int l = ipvt[j];
-                wa1[j] = diag[diagOff+l] * (wa2[l] / dxnorm);
-            }
-            for (int j = 0; j < n; j++) {
-                double sum = 0.0;
-                for (int i = 0; i < j; i++) sum += r[rOff+i*n+j] * wa1[i];
-                wa1[j] = (wa1[j] - sum) / r[rOff+j*n+j];
-            }
-            double tmp = enorm(n, wa1, 0);
-            parl = ((fp / delta) / tmp) / tmp;
-        }
-
-        for (int j = 0; j < n; j++) {
-            double sum = 0.0;
-            for (int i = 0; i <= j; i++) sum += r[rOff+i*n+j] * qtb[qtbOff+i];
-            int l = ipvt[j];
-            wa1[j] = sum / diag[diagOff+l];
-        }
-        double gnorm = enorm(n, wa1, 0);
-        double paru = gnorm / delta;
-        if (paru == 0.0) paru = dwarf / Math.min(delta, p1);
-
-        par = Math.max(par, parl);
-        par = Math.min(par, paru);
-        if (par == 0.0) par = gnorm / dxnorm;
-
-        for (iter = 1; iter <= 10; iter++) {
-            if (par == 0.0) par = Math.max(dwarf, p001 * paru);
-            double sqrtPar = Math.sqrt(par);
-            for (int j = 0; j < n; j++) wa1[j] = sqrtPar * diag[diagOff+j];
-            qrsolv(n, r, rOff, ipvt, wa1, qtb, qtbOff, x, xOff, sdiag, sdiagOff, wa2);
-            for (int j = 0; j < n; j++) wa2[j] = diag[diagOff+j] * x[xOff+j];
-            dxnorm = enorm(n, wa2, 0);
-            double fpOld = fp;
-            fp = dxnorm - delta;
-
-            if (Math.abs(fp) <= p1 * delta
-                || (parl == 0.0 && fp <= fpOld && fpOld < 0.0)
-                || iter == 10) break;
-
-            for (int j = 0; j < n; j++) {
-                int l = ipvt[j];
-                wa1[j] = diag[diagOff+l] * (wa2[l] / dxnorm);
-            }
-            for (int j = 0; j < n; j++) {
-                wa1[j] /= sdiag[sdiagOff+j];
-                double tmp = wa1[j];
-                for (int i = j+1; i < n; i++) wa1[i] -= r[rOff+i*n+j] * tmp;
-            }
-            double tmp = enorm(n, wa1, 0);
-            double parc = ((fp / delta) / tmp) / tmp;
-            if (fp > 0.0) parl = Math.max(parl, par);
-            if (fp < 0.0) paru = Math.min(paru, par);
-            par = Math.max(parl, par + parc);
-        }
-        if (iter == 0) par = 0.0;
-        return par;
     }
 
     // ── Coleman-Li scaling ────────────────────────────────────────────────────
@@ -927,7 +564,7 @@ final class TRFCore {
 
         fcn.evaluate(x, n, fvec, m, null);
         int nfev = 1;
-        double fnorm = enorm(m, fvec, 0);
+        double fnorm = LMCore.enorm(m, fvec, 0);
 
         double par  = 0.0;
         int    iter = 1;
@@ -950,7 +587,7 @@ final class TRFCore {
             // ── Factor J·P = Q·R (on the loss-scaled Jacobian) ───────────────
             // wa1 → rdiag, wa2 → acnorm (offset 0, standalone), wa3 → wa scratch, qtf → tmp scratch
             // work[qtfOff] is passed as tmp[] scratch — safe because qrfac runs before applyQtToVec
-            qrfac(m, n, fjac, ipvt,
+            LMCore.qrfac(m, n, fjac, ipvt,
                   work, wa1Off,   // rdiag
                   wa2,  0,        // acnorm — wa2 is standalone, offset 0
                   work, wa3Off,   // wa scratch
@@ -975,7 +612,7 @@ final class TRFCore {
                 }
                 for (int j = 0; j < n; j++)
                     work[wa3Off+j] = work[diagOff+j] * work[clScaleOff+j] * x[j];
-                double xnorm = enorm(n, work, wa3Off);
+                double xnorm = LMCore.enorm(n, work, wa3Off);
                 double delta = (xnorm != 0.0) ? factor * xnorm : factor;
                 ws.delta = delta;
                 ws.xnorm = xnorm;
@@ -983,7 +620,7 @@ final class TRFCore {
 
             // ── Compute Qᵀ·f ──────────────────────────────────────────────────
             System.arraycopy(fvec, 0, wa4, 0, m);
-            applyQtToVec(fjac, m, n, wa4, work, wa1Off);  // wa1 = rdiag
+            LMCore.applyQtToVec(fjac, m, n, wa4, work, wa1Off);  // wa1 = rdiag
             System.arraycopy(wa4, 0, work, qtfOff, n);
 
             // ── Gradient norm (Coleman-Li scaled) ─────────────────────────────
@@ -1059,7 +696,7 @@ final class TRFCore {
                     for (int i = 0; i <= j; i++)
                         work[rworkOff+i*n+j] = fjac[i*n+j];
 
-                par = lmpar(n, work, rworkOff, ipvt,
+                par = LMCore.lmpar(n, work, rworkOff, ipvt,
                             work, effDiagOff,
                             work, qtfOff,
                             ws.delta, par,
@@ -1085,7 +722,7 @@ final class TRFCore {
                 // effDiag is computed before lmpar and not modified by it, so it's stable here.
                 for (int j = 0; j < n; j++)
                     work[wa3Off+j] = work[effDiagOff+j] * work[stepOff+j];
-                double pnorm = enorm(n, work, wa3Off);
+                double pnorm = LMCore.enorm(n, work, wa3Off);
 
                 if (iter == 1 && pnorm > 0) ws.delta = Math.min(ws.delta, pnorm);
 
@@ -1113,7 +750,7 @@ final class TRFCore {
                     double tmp = work[stepOff+l];
                     for (int i = 0; i <= j; i++) work[wa3Off+i] += fjac[i * n + j] * tmp;
                 }
-                double temp1  = enorm(n, work, wa3Off) / fnorm;
+                double temp1  = LMCore.enorm(n, work, wa3Off) / fnorm;
                 double temp2  = (Math.sqrt(par) * pnorm) / fnorm;
                 double prered = temp1 * temp1 + temp2 * temp2 / P5;
                 double dirder = -(temp1 * temp1 + temp2 * temp2);
@@ -1143,7 +780,7 @@ final class TRFCore {
                     clScaling(x, work, qtfOff, bounds, n, work, clScaleOff);
                     for (int j = 0; j < n; j++) work[effDiagOff+j] = work[diagOff+j] * work[clScaleOff+j];
                     for (int j = 0; j < n; j++) wa2[j] = work[effDiagOff+j] * x[j];  // xnorm scratch
-                    ws.xnorm = enorm(n, wa2, 0);
+                    ws.xnorm = LMCore.enorm(n, wa2, 0);
                     fnorm = fnorm1;
                     iter++;
                 }

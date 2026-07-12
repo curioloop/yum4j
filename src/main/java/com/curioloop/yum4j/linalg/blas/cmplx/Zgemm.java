@@ -4,6 +4,8 @@
 package com.curioloop.yum4j.linalg.blas.cmplx;
 
 import com.curioloop.yum4j.linalg.blas.BLAS;
+import com.curioloop.yum4j.linalg.blas.Dgemm;
+import com.curioloop.yum4j.math.ArrayPool;
 /**
  * ZGEMM performs complex matrix-matrix multiplication.
  *
@@ -105,6 +107,8 @@ interface Zgemm {
         int maxBlock = Math.max(BLOCK_M, Math.max(BLOCK_N, BLOCK_K));
         if (m < maxBlock && n < maxBlock && k < maxBlock) {
             zgemmNNDirect(m, n, k, alphaRe, alphaIm, A, aOff, lda, B, bOff, ldb, C, cOff, ldc);
+        } else if (Dgemm.PACK_POOL != null && zSizeGatePass(m, n, k)) {
+            zgemmNNPacked(m, n, k, alphaRe, alphaIm, A, aOff, lda, B, bOff, ldb, C, cOff, ldc, Dgemm.PACK_POOL);
         } else {
             zgemmNNBlocked(m, n, k, alphaRe, alphaIm, A, aOff, lda, B, bOff, ldb, C, cOff, ldc);
         }
@@ -364,6 +368,8 @@ interface Zgemm {
         int maxBlock = Math.max(BLOCK_M, Math.max(BLOCK_N, BLOCK_K));
         if (m < maxBlock && n < maxBlock && k < maxBlock) {
             zgemmTNDirect(m, n, k, alphaRe, alphaIm, A, aOff, lda, B, bOff, ldb, C, cOff, ldc, conjA);
+        } else if (Dgemm.PACK_POOL != null && zSizeGatePass(m, n, k)) {
+            zgemmTNPacked(m, n, k, alphaRe, alphaIm, A, aOff, lda, B, bOff, ldb, C, cOff, ldc, conjA, Dgemm.PACK_POOL);
         } else {
             zgemmTNBlocked(m, n, k, alphaRe, alphaIm, A, aOff, lda, B, bOff, ldb, C, cOff, ldc, conjA);
         }
@@ -1243,6 +1249,253 @@ interface Zgemm {
                 C[cRow + j * 2] += alphaRe * sr - alphaIm * si;
                 C[cRow + j * 2 + 1] += alphaRe * si + alphaIm * sr;
             }
+        }
+    }
+
+    // ==================== Packed NN / TN (complex) ====================
+    //
+    // Mirrors the real DGEMM packing (see Dgemm), adapted to interleaved [re,im]
+    // storage and a 2x2 complex register block. Shares the SAME on/off switch and
+    // packing pool as DGEMM: Dgemm.PACK_POOL (governed by -Dyum4j.gemm.pack). When
+    // that pool is null, packing is disabled here too and the reference blocked
+    // path runs unchanged.
+    //
+    // Panels hold complex elements as consecutive [re,im] doubles. Block sizes are
+    // half of DGEMM's (complex elements are 2x wide): a kc*nc or mc*kc panel is
+    // 64*64 complex = 8192 doubles, landing on the pool's 8192 bucket.
+
+    /** Complex micro-kernel row width (complex elements). */
+    int ZMR = 2;
+    /** Complex micro-kernel column width (complex elements). */
+    int ZNR = 2;
+    /** A panel row block (complex rows). */
+    int ZMC = BLOCK_M * 2;   // 64
+    /** B panel column block (complex cols). */
+    int ZNC = BLOCK_N * 2;   // 64
+    /** Contraction block (complex). */
+    int ZKC = BLOCK_K;       // 64
+
+    // Size gate thresholds (decoupled from the packing block sizes ZMC/ZNC/ZKC).
+    //
+    // Tuned via PackedZgemmBenchmark (square NN/TN sweep, JDK 27):
+    //   n     NN packed vs blocked     TN packed vs blocked
+    //   64    -12% (regression)        -9%
+    //   96    -6%                      -12%
+    //   128   ~tie (-1%)               ~tie
+    //   160   ~tie                     -9% (regression)
+    //   192   ~tie (+1%)               -7% (regression)
+    //   256   +5% (reliable)           +win
+    //   1024  +1.5x                    +1.5x
+    // Complex arithmetic is compute-heavier per element (≈8 flops/MAC vs 2 for real),
+    // so packing's memory-latency payoff only dominates at larger n than the real
+    // path. Gate at 256 to skip the ≤192 region where packing ties or regresses.
+    int ZPACK_MIN_M = 256;
+    int ZPACK_MIN_N = 256;
+    int ZPACK_MIN_K = 256;
+
+    /** Complex size gate. The on/off switch is shared with DGEMM via Dgemm.PACK_POOL;
+     *  only the size threshold is complex-specific (see tuning table above). */
+    static boolean zSizeGatePass(int m, int n, int k) {
+        return m >= ZPACK_MIN_M && n >= ZPACK_MIN_N && k >= ZPACK_MIN_K;
+    }
+
+    /**
+     * Packs B(pc:pc+kc, jc:jc+nc) into Bpack as interleaved complex, NR-wide column
+     * slivers, k-major: complex element (l, j=jp*NR+jr) at doubles index
+     * {@code 2*(jp*(kc*NR) + l*NR + jr)}. Tail columns are zero-filled.
+     */
+    static void packBz(double[] B, int bOff, int ldb,
+                       int pc, int kc, int jc, int nc, double[] Bpack) {
+        int idx = 0;
+        for (int j0 = 0; j0 < nc; j0 += ZNR) {
+            int cols = Math.min(ZNR, nc - j0);
+            for (int l = 0; l < kc; l++) {
+                int bRow = (bOff + (pc + l) * ldb + (jc + j0)) * 2;
+                for (int jr = 0; jr < cols; jr++) {
+                    Bpack[idx++] = B[bRow + jr * 2];
+                    Bpack[idx++] = B[bRow + jr * 2 + 1];
+                }
+                for (int jr = cols; jr < ZNR; jr++) {
+                    Bpack[idx++] = 0.0;
+                    Bpack[idx++] = 0.0;
+                }
+            }
+        }
+    }
+
+    /**
+     * Packs A(ic:ic+mc, pc:pc+kc) (no transpose) into Apack as interleaved complex,
+     * MR-tall row slivers, k-major. Tail rows are zero-filled.
+     */
+    static void packAzNN(double[] A, int aOff, int lda,
+                         int ic, int mc, int pc, int kc, double[] Apack) {
+        int idx = 0;
+        for (int i0 = 0; i0 < mc; i0 += ZMR) {
+            int rows = Math.min(ZMR, mc - i0);
+            for (int l = 0; l < kc; l++) {
+                for (int ir = 0; ir < rows; ir++) {
+                    int a = (aOff + (ic + i0 + ir) * lda + (pc + l)) * 2;
+                    Apack[idx++] = A[a];
+                    Apack[idx++] = A[a + 1];
+                }
+                for (int ir = rows; ir < ZMR; ir++) {
+                    Apack[idx++] = 0.0;
+                    Apack[idx++] = 0.0;
+                }
+            }
+        }
+    }
+
+    /**
+     * Packs A^T(ic:ic+mc, pc:pc+kc) into Apack as interleaved complex, MR-tall row
+     * slivers, k-major, sourcing from column-major A (A[(pc+l)*lda + (ic+i)]).
+     * Conjugation (for Conj-transpose) is folded in by negating the imaginary part,
+     * so the micro-kernel stays conj-agnostic. Tail rows are zero-filled.
+     */
+    static void packAzTN(double[] A, int aOff, int lda,
+                         int ic, int mc, int pc, int kc, boolean conjA, double[] Apack) {
+        int idx = 0;
+        for (int i0 = 0; i0 < mc; i0 += ZMR) {
+            int rows = Math.min(ZMR, mc - i0);
+            for (int l = 0; l < kc; l++) {
+                int base = (aOff + (pc + l) * lda + (ic + i0)) * 2;
+                for (int ir = 0; ir < rows; ir++) {
+                    double re = A[base + ir * 2];
+                    double im = A[base + ir * 2 + 1];
+                    Apack[idx++] = re;
+                    Apack[idx++] = conjA ? -im : im;
+                }
+                for (int ir = rows; ir < ZMR; ir++) {
+                    Apack[idx++] = 0.0;
+                    Apack[idx++] = 0.0;
+                }
+            }
+        }
+    }
+
+    /**
+     * 2x2 complex packed micro-kernel: C(block) += alpha * (Apanel · Bpanel),
+     * accumulated over kc. Both operands read sequentially from interleaved packed
+     * buffers. alpha applied once at write-back; only the mrEff×nrEff valid tile is
+     * written (padded lanes carry zeros).
+     */
+    static void microKernelZPacked(int kc, double alphaRe, double alphaIm,
+                                   double[] Apack, int apOff,
+                                   double[] Bpack, int bpOff,
+                                   double[] C, int cOff, int ldc,
+                                   int mrEff, int nrEff) {
+        double c00r = 0, c00i = 0, c01r = 0, c01i = 0;
+        double c10r = 0, c10i = 0, c11r = 0, c11i = 0;
+        int ap = apOff, bp = bpOff;
+        for (int l = 0; l < kc; l++) {
+            double a0r = Apack[ap], a0i = Apack[ap + 1];
+            double a1r = Apack[ap + 2], a1i = Apack[ap + 3];
+            double b0r = Bpack[bp], b0i = Bpack[bp + 1];
+            double b1r = Bpack[bp + 2], b1i = Bpack[bp + 3];
+            c00r = Math.fma(a0r, b0r, Math.fma(-a0i, b0i, c00r));
+            c00i = Math.fma(a0r, b0i, Math.fma(a0i, b0r, c00i));
+            c01r = Math.fma(a0r, b1r, Math.fma(-a0i, b1i, c01r));
+            c01i = Math.fma(a0r, b1i, Math.fma(a0i, b1r, c01i));
+            c10r = Math.fma(a1r, b0r, Math.fma(-a1i, b0i, c10r));
+            c10i = Math.fma(a1r, b0i, Math.fma(a1i, b0r, c10i));
+            c11r = Math.fma(a1r, b1r, Math.fma(-a1i, b1i, c11r));
+            c11i = Math.fma(a1r, b1i, Math.fma(a1i, b1r, c11i));
+            ap += 2 * ZMR;
+            bp += 2 * ZNR;
+        }
+
+        // Write back C += alpha * accumulators (complex), applying alpha once.
+        // (0,0) is always valid; other lanes are guarded. No temporary arrays.
+        int base0 = cOff * 2;
+        C[base0]     += alphaRe * c00r - alphaIm * c00i;
+        C[base0 + 1] += alphaRe * c00i + alphaIm * c00r;
+        if (nrEff == 2) {
+            C[base0 + 2] += alphaRe * c01r - alphaIm * c01i;
+            C[base0 + 3] += alphaRe * c01i + alphaIm * c01r;
+        }
+        if (mrEff == 2) {
+            int base1 = (cOff + ldc) * 2;
+            C[base1]     += alphaRe * c10r - alphaIm * c10i;
+            C[base1 + 1] += alphaRe * c10i + alphaIm * c10r;
+            if (nrEff == 2) {
+                C[base1 + 2] += alphaRe * c11r - alphaIm * c11i;
+                C[base1 + 3] += alphaRe * c11i + alphaIm * c11r;
+            }
+        }
+    }
+
+    static void macroKernelZPacked(int mc, int nc, int kc, double alphaRe, double alphaIm,
+                                   double[] Apack, double[] Bpack,
+                                   double[] C, int cBlkOff, int ldc) {
+        for (int jr = 0; jr < nc; jr += ZNR) {
+            int nrEff = Math.min(ZNR, nc - jr);
+            int bpOff = (jr / ZNR) * (kc * ZNR) * 2;
+            for (int ir = 0; ir < mc; ir += ZMR) {
+                int mrEff = Math.min(ZMR, mc - ir);
+                int apOff = (ir / ZMR) * (kc * ZMR) * 2;
+                microKernelZPacked(kc, alphaRe, alphaIm, Apack, apOff, Bpack, bpOff,
+                        C, cBlkOff + ir * ldc + jr, ldc, mrEff, nrEff);
+            }
+        }
+    }
+
+    /**
+     * Packed complex NN GEMM: C += alpha * A * B (beta already applied by scaleC).
+     * Shares the DGEMM packing pool; buffers are complex panels (2 doubles/element).
+     */
+    static void zgemmNNPacked(int m, int n, int k, double alphaRe, double alphaIm,
+                              double[] A, int aOff, int lda,
+                              double[] B, int bOff, int ldb,
+                              double[] C, int cOff, int ldc, ArrayPool.OfDouble pool) {
+        double[] Apack = pool.acquire(ZMC * ZKC * 2);
+        double[] Bpack = pool.acquire(ZKC * ZNC * 2);
+        try {
+            for (int jc = 0; jc < n; jc += ZNC) {
+                int ncEff = Math.min(ZNC, n - jc);
+                for (int pc = 0; pc < k; pc += ZKC) {
+                    int kcEff = Math.min(ZKC, k - pc);
+                    packBz(B, bOff, ldb, pc, kcEff, jc, ncEff, Bpack);
+                    for (int ic = 0; ic < m; ic += ZMC) {
+                        int mcEff = Math.min(ZMC, m - ic);
+                        packAzNN(A, aOff, lda, ic, mcEff, pc, kcEff, Apack);
+                        macroKernelZPacked(mcEff, ncEff, kcEff, alphaRe, alphaIm,
+                                Apack, Bpack, C, cOff + ic * ldc + jc, ldc);
+                    }
+                }
+            }
+        } finally {
+            pool.release(Bpack);
+            pool.release(Apack);
+        }
+    }
+
+    /**
+     * Packed complex TN GEMM: C += alpha * op(A) * B where op is transpose (conjA=false)
+     * or conjugate-transpose (conjA=true). Conjugation is folded into packing.
+     */
+    static void zgemmTNPacked(int m, int n, int k, double alphaRe, double alphaIm,
+                              double[] A, int aOff, int lda,
+                              double[] B, int bOff, int ldb,
+                              double[] C, int cOff, int ldc, boolean conjA, ArrayPool.OfDouble pool) {
+        double[] Apack = pool.acquire(ZMC * ZKC * 2);
+        double[] Bpack = pool.acquire(ZKC * ZNC * 2);
+        try {
+            for (int jc = 0; jc < n; jc += ZNC) {
+                int ncEff = Math.min(ZNC, n - jc);
+                for (int pc = 0; pc < k; pc += ZKC) {
+                    int kcEff = Math.min(ZKC, k - pc);
+                    packBz(B, bOff, ldb, pc, kcEff, jc, ncEff, Bpack);
+                    for (int ic = 0; ic < m; ic += ZMC) {
+                        int mcEff = Math.min(ZMC, m - ic);
+                        packAzTN(A, aOff, lda, ic, mcEff, pc, kcEff, conjA, Apack);
+                        macroKernelZPacked(mcEff, ncEff, kcEff, alphaRe, alphaIm,
+                                Apack, Bpack, C, cOff + ic * ldc + jc, ldc);
+                    }
+                }
+            }
+        } finally {
+            pool.release(Bpack);
+            pool.release(Apack);
         }
     }
 }

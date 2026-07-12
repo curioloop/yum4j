@@ -3,6 +3,8 @@
  */
 package com.curioloop.yum4j.linalg.blas;
 
+import com.curioloop.yum4j.math.ArrayPool;
+
 /**
  * DGEMM performs matrix-matrix multiplication.
  * 
@@ -149,6 +151,8 @@ public interface Dgemm {
         int maxBlock = Math.max(BLOCK_M, Math.max(BLOCK_N, BLOCK_K));
         if ((m < maxBlock && n < maxBlock && k < maxBlock) || preferThinKDirect(m, n, k)) {
             dgemmNNDirect(m, n, k, alpha, A, aOff, lda, B, bOff, ldb, C, cOff, ldc);
+        } else if (PACK_POOL != null && sizeGatePass(m, n, k)) {
+            dgemmNNPacked(m, n, k, alpha, A, aOff, lda, B, bOff, ldb, C, cOff, ldc, PACK_POOL);
         } else {
             dgemmNNBlocked(m, n, k, alpha, A, aOff, lda, B, bOff, ldb, C, cOff, ldc);
         }
@@ -165,6 +169,8 @@ public interface Dgemm {
 
         if (preferTNDirect(m, n, k)) {
             dgemmTNDirect(m, n, k, alpha, A, aOff, lda, B, bOff, ldb, C, cOff, ldc);
+        } else if (PACK_POOL != null && sizeGatePass(m, n, k)) {
+            dgemmTNPacked(m, n, k, alpha, A, aOff, lda, B, bOff, ldb, C, cOff, ldc, PACK_POOL);
         } else {
             dgemmTNBlocked(m, n, k, alpha, A, aOff, lda, B, bOff, ldb, C, cOff, ldc);
         }
@@ -1416,6 +1422,280 @@ public interface Dgemm {
                 }
                 C[cRow + j] += alpha * sum;
             }
+        }
+    }
+
+    // ==================== Packed NN (A*B) Implementation ====================
+    //
+    // Optional GotoBLAS/BLIS-style packing for the NN path. A's mc×kc panel and
+    // B's kc×nc panel are copied into contiguous buffers so the 4×4 micro-kernel
+    // reads both operands sequentially, cutting cache/TLB misses on large matrices.
+    //
+    // The optimization is gated on a DGEMM-owned ArrayPool (PACK_POOL). When the
+    // switch yum4j.gemm.pack=false, PACK_POOL is null and this path is never taken
+    // (the reference dgemmNNBlocked path runs, bit-for-bit unchanged).
+
+    /** Micro-kernel row width (registers). */
+    int MR = 4;
+    /** Micro-kernel column width (registers). */
+    int NR = 4;
+    /** A panel row block (Apack rows). */
+    int MC = BLOCK_M * 2;   // 128
+    /** B panel column block (Bpack cols). */
+    int NC = BLOCK_N * 2;   // 128
+    /** Contraction block (Apack cols / Bpack rows). */
+    int KC = BLOCK_K;       // 128
+
+    /** Size gate: pack only when every dimension reaches these thresholds. */
+    int PACK_MIN_M = MC;
+    int PACK_MIN_N = NC;
+    int PACK_MIN_K = BLOCK_K;
+
+    /**
+     * DGEMM-owned packing pool. Created once at class init iff packing is enabled;
+     * {@code null} disables the packed path entirely (no pool, no allocation).
+     *
+     * <p>This is a dedicated {@link ArrayPool.OfDouble}, NOT the shared
+     * {@link ArrayPool#doubles()} singleton, so packing buffers never contend with
+     * other subsystems for pool slots.</p>
+     */
+    ArrayPool.OfDouble PACK_POOL =
+            parsePackEnabled(System.getProperty("yum4j.gemm.pack", "auto"))
+                    ? new ArrayPool.OfDouble()
+                    : null;
+
+    /**
+     * Parses the {@code yum4j.gemm.pack} switch. {@code false} (case-insensitive)
+     * disables packing; {@code true}, {@code auto}, {@code null}, or any other value
+     * enables it (still subject to the size gate). Never throws.
+     */
+    static boolean parsePackEnabled(String raw) {
+        return raw == null || !"false".equalsIgnoreCase(raw.trim());
+    }
+
+    /** Size gate predicate: whether the matrix is large enough to benefit from packing. */
+    static boolean sizeGatePass(int m, int n, int k) {
+        return m >= PACK_MIN_M && n >= PACK_MIN_N && k >= PACK_MIN_K;
+    }
+
+    /**
+     * Packs B(pc:pc+kc, jc:jc+nc) into Bpack using NR-wide column slivers, k-major:
+     * {@code Bpack[jp*(kc*NR) + l*NR + jr]}. Tail columns (nc not a multiple of NR)
+     * are zero-filled so the micro-kernel can always run full NR width.
+     */
+    static void packB(double[] B, int bOff, int ldb,
+                      int pc, int kc, int jc, int nc, double[] Bpack) {
+        int idx = 0;
+        for (int j0 = 0; j0 < nc; j0 += NR) {
+            int cols = Math.min(NR, nc - j0);
+            for (int l = 0; l < kc; l++) {
+                int bRow = bOff + (pc + l) * ldb + (jc + j0);
+                for (int jr = 0; jr < cols; jr++) {
+                    Bpack[idx++] = B[bRow + jr];
+                }
+                for (int jr = cols; jr < NR; jr++) {
+                    Bpack[idx++] = 0.0;
+                }
+            }
+        }
+    }
+
+    /**
+     * Packs A(ic:ic+mc, pc:pc+kc) into Apack using MR-tall row slivers, k-major:
+     * {@code Apack[ip*(kc*MR) + l*MR + ir]}. Tail rows (mc not a multiple of MR)
+     * are zero-filled so the micro-kernel can always run full MR height.
+     */
+    static void packA(double[] A, int aOff, int lda,
+                      int ic, int mc, int pc, int kc, double[] Apack) {
+        int idx = 0;
+        for (int i0 = 0; i0 < mc; i0 += MR) {
+            int rows = Math.min(MR, mc - i0);
+            for (int l = 0; l < kc; l++) {
+                int col = pc + l;
+                for (int ir = 0; ir < rows; ir++) {
+                    Apack[idx++] = A[aOff + (ic + i0 + ir) * lda + col];
+                }
+                for (int ir = rows; ir < MR; ir++) {
+                    Apack[idx++] = 0.0;
+                }
+            }
+        }
+    }
+
+    /**
+     * 4×4 packed micro-kernel: C(block) += alpha * (Apanel · Bpanel), accumulated
+     * over the full kc of the packed panels. Both operands are read sequentially.
+     * alpha is applied once at write-back. Only the valid mrEff×nrEff sub-tile is
+     * written back (padded lanes carry zeros and are skipped).
+     */
+    static void microKernelNNPacked(int kc, double alpha,
+                                    double[] Apack, int apOff,
+                                    double[] Bpack, int bpOff,
+                                    double[] C, int cOff, int ldc,
+                                    int mrEff, int nrEff) {
+        double c00 = 0, c01 = 0, c02 = 0, c03 = 0;
+        double c10 = 0, c11 = 0, c12 = 0, c13 = 0;
+        double c20 = 0, c21 = 0, c22 = 0, c23 = 0;
+        double c30 = 0, c31 = 0, c32 = 0, c33 = 0;
+        int ap = apOff, bp = bpOff;
+        for (int l = 0; l < kc; l++) {
+            double a0 = Apack[ap], a1 = Apack[ap + 1], a2 = Apack[ap + 2], a3 = Apack[ap + 3];
+            double b0 = Bpack[bp], b1 = Bpack[bp + 1], b2 = Bpack[bp + 2], b3 = Bpack[bp + 3];
+            c00 = Math.fma(a0, b0, c00); c01 = Math.fma(a0, b1, c01); c02 = Math.fma(a0, b2, c02); c03 = Math.fma(a0, b3, c03);
+            c10 = Math.fma(a1, b0, c10); c11 = Math.fma(a1, b1, c11); c12 = Math.fma(a1, b2, c12); c13 = Math.fma(a1, b3, c13);
+            c20 = Math.fma(a2, b0, c20); c21 = Math.fma(a2, b1, c21); c22 = Math.fma(a2, b2, c22); c23 = Math.fma(a2, b3, c23);
+            c30 = Math.fma(a3, b0, c30); c31 = Math.fma(a3, b1, c31); c32 = Math.fma(a3, b2, c32); c33 = Math.fma(a3, b3, c33);
+            ap += MR;
+            bp += NR;
+        }
+
+        if (mrEff == 4 && nrEff == 4) {
+            int r0 = cOff, r1 = cOff + ldc, r2 = cOff + 2 * ldc, r3 = cOff + 3 * ldc;
+            C[r0] += alpha * c00; C[r0 + 1] += alpha * c01; C[r0 + 2] += alpha * c02; C[r0 + 3] += alpha * c03;
+            C[r1] += alpha * c10; C[r1 + 1] += alpha * c11; C[r1 + 2] += alpha * c12; C[r1 + 3] += alpha * c13;
+            C[r2] += alpha * c20; C[r2 + 1] += alpha * c21; C[r2 + 2] += alpha * c22; C[r2 + 3] += alpha * c23;
+            C[r3] += alpha * c30; C[r3 + 1] += alpha * c31; C[r3 + 2] += alpha * c32; C[r3 + 3] += alpha * c33;
+            return;
+        }
+
+        // Edge tile: write only the valid rows/cols, no temporary array.
+        storeRowNNPacked(C, cOff, nrEff, alpha, c00, c01, c02, c03);
+        if (mrEff > 1) storeRowNNPacked(C, cOff + ldc, nrEff, alpha, c10, c11, c12, c13);
+        if (mrEff > 2) storeRowNNPacked(C, cOff + 2 * ldc, nrEff, alpha, c20, c21, c22, c23);
+        if (mrEff > 3) storeRowNNPacked(C, cOff + 3 * ldc, nrEff, alpha, c30, c31, c32, c33);
+    }
+
+    /** Writes up to {@code nrEff} (&le;4) column values of one C row: C[off+j] += alpha*cj. */
+    static void storeRowNNPacked(double[] C, int off, int nrEff, double alpha,
+                                 double c0, double c1, double c2, double c3) {
+        C[off] += alpha * c0;
+        if (nrEff > 1) C[off + 1] += alpha * c1;
+        if (nrEff > 2) C[off + 2] += alpha * c2;
+        if (nrEff > 3) C[off + 3] += alpha * c3;
+    }
+
+    /**
+     * Macro-kernel: sweeps the packed mc×nc block in MR×NR micro-tiles, dispatching
+     * each to {@link #microKernelNNPacked}. Panel offsets index into the k-major
+     * packed buffers with stride kc.
+     */
+    static void macroKernelNNPacked(int mc, int nc, int kc, double alpha,
+                                    double[] Apack, double[] Bpack,
+                                    double[] C, int cBlkOff, int ldc) {
+        for (int jr = 0; jr < nc; jr += NR) {
+            int nrEff = Math.min(NR, nc - jr);
+            int bpOff = (jr / NR) * (kc * NR);
+            for (int ir = 0; ir < mc; ir += MR) {
+                int mrEff = Math.min(MR, mc - ir);
+                int apOff = (ir / MR) * (kc * MR);
+                microKernelNNPacked(kc, alpha, Apack, apOff, Bpack, bpOff,
+                        C, cBlkOff + ir * ldc + jr, ldc, mrEff, nrEff);
+            }
+        }
+    }
+
+    /**
+     * Packed NN GEMM: C += alpha * A * B (beta already applied to C by scaleC).
+     *
+     * <p>Five-loop GotoBLAS structure {@code jc → pc → ic}. Because the contraction
+     * block loop (pc) is outer to the row-block loop (ic), each C sub-block is
+     * updated with {@code +=} once per kc-block, keeping the k reduction in natural
+     * increasing order (grouped by kc). Apack/Bpack are borrowed from the given
+     * pool and returned in a finally block.</p>
+     *
+     * @param pool DGEMM-owned packing pool (caller guarantees non-null)
+     */
+    static void dgemmNNPacked(int m, int n, int k, double alpha,
+                              double[] A, int aOff, int lda,
+                              double[] B, int bOff, int ldb,
+                              double[] C, int cOff, int ldc,
+                              ArrayPool.OfDouble pool) {
+        double[] Apack = pool.acquire(MC * KC);
+        double[] Bpack = pool.acquire(KC * NC);
+        try {
+            for (int jc = 0; jc < n; jc += NC) {
+                int ncEff = Math.min(NC, n - jc);
+                for (int pc = 0; pc < k; pc += KC) {
+                    int kcEff = Math.min(KC, k - pc);
+                    packB(B, bOff, ldb, pc, kcEff, jc, ncEff, Bpack);
+                    for (int ic = 0; ic < m; ic += MC) {
+                        int mcEff = Math.min(MC, m - ic);
+                        packA(A, aOff, lda, ic, mcEff, pc, kcEff, Apack);
+                        macroKernelNNPacked(mcEff, ncEff, kcEff, alpha,
+                                Apack, Bpack, C, cOff + ic * ldc + jc, ldc);
+                    }
+                }
+            }
+        } finally {
+            pool.release(Bpack);
+            pool.release(Apack);
+        }
+    }
+
+    // ==================== Packed TN (A^T*B) Implementation ====================
+    //
+    // In the TN path A is read column-major (A[aOff + l*lda + i], stride lda along
+    // the contraction axis), which is exactly the access pattern that packing A
+    // fixes. B is read row-major, identical to NN. The packed buffer layout is the
+    // same as NN, so the NN macro-/micro-kernels are reused verbatim; only the A
+    // source-gather pattern differs, captured in packATN.
+
+    /**
+     * Packs A^T(ic:ic+mc, pc:pc+kc) into Apack using MR-tall row slivers, k-major:
+     * {@code Apack[ip*(kc*MR) + l*MR + ir]}, where the logical element A^T(i,l) is
+     * sourced from {@code A[aOff + (pc+l)*lda + (ic+i)]} (A stored column-major w.r.t.
+     * the transpose). Tail rows are zero-filled.
+     */
+    static void packATN(double[] A, int aOff, int lda,
+                        int ic, int mc, int pc, int kc, double[] Apack) {
+        int idx = 0;
+        for (int i0 = 0; i0 < mc; i0 += MR) {
+            int rows = Math.min(MR, mc - i0);
+            for (int l = 0; l < kc; l++) {
+                int srcRow = aOff + (pc + l) * lda + (ic + i0);
+                for (int ir = 0; ir < rows; ir++) {
+                    Apack[idx++] = A[srcRow + ir];
+                }
+                for (int ir = rows; ir < MR; ir++) {
+                    Apack[idx++] = 0.0;
+                }
+            }
+        }
+    }
+
+    /**
+     * Packed TN GEMM: C += alpha * A^T * B (beta already applied to C by scaleC).
+     *
+     * <p>Same five-loop {@code jc → pc → ic} structure and numerical grouping as
+     * {@link #dgemmNNPacked}; differs only in gathering A via {@link #packATN}. The
+     * NN macro-/micro-kernels are reused because the packed layout is identical.</p>
+     *
+     * @param pool DGEMM-owned packing pool (caller guarantees non-null)
+     */
+    static void dgemmTNPacked(int m, int n, int k, double alpha,
+                              double[] A, int aOff, int lda,
+                              double[] B, int bOff, int ldb,
+                              double[] C, int cOff, int ldc,
+                              ArrayPool.OfDouble pool) {
+        double[] Apack = pool.acquire(MC * KC);
+        double[] Bpack = pool.acquire(KC * NC);
+        try {
+            for (int jc = 0; jc < n; jc += NC) {
+                int ncEff = Math.min(NC, n - jc);
+                for (int pc = 0; pc < k; pc += KC) {
+                    int kcEff = Math.min(KC, k - pc);
+                    packB(B, bOff, ldb, pc, kcEff, jc, ncEff, Bpack);
+                    for (int ic = 0; ic < m; ic += MC) {
+                        int mcEff = Math.min(MC, m - ic);
+                        packATN(A, aOff, lda, ic, mcEff, pc, kcEff, Apack);
+                        macroKernelNNPacked(mcEff, ncEff, kcEff, alpha,
+                                Apack, Bpack, C, cOff + ic * ldc + jc, ldc);
+                    }
+                }
+            }
+        } finally {
+            pool.release(Bpack);
+            pool.release(Apack);
         }
     }
 
