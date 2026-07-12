@@ -7,6 +7,8 @@ YUM4J is a high-performance Java toolkit for numerical modeling and scientific c
 ## Algorithm Selection
 
 - Derivative-free global optimization (non-convex, noisy, no gradient) → CMA-ES (`Minimizer.cmaes()`)
+- Bounded derivative-free global optimization with population strategies and constraints → Differential Evolution (`Minimizer.de()`)
+- Bounded derivative-free global optimization with generalized annealing and local search → Dual Annealing (`Minimizer.da()`)
 - Derivative-free optimization (no gradient) → Subplex (`Minimizer.subplex()`)
 - Unconstrained or bound-constrained optimization → L-BFGS-B (`Minimizer.lbfgsb()`)
 - Equality or inequality constrained optimization → SLSQP (`Minimizer.slsqp()`)
@@ -25,6 +27,8 @@ YUM4J is a high-performance Java toolkit for numerical modeling and scientific c
 ```
 com.curioloop.yum4j.optim             # Minimizer, RootFinder, Bound, Optimization (result + Status)
 com.curioloop.yum4j.optim.cmaes       # CMAESProblem, CMAESWorkspace
+com.curioloop.yum4j.optim.de          # DEProblem, DEWorkspace, EvolutionStrategy, PopulationInit, DEEvaluator
+com.curioloop.yum4j.optim.da          # DAProblem, DAWorkspace, LocalSearch, SearchHook, SearchType
 com.curioloop.yum4j.optim.subplex     # SubplexProblem, SubplexWorkspace
 com.curioloop.yum4j.optim.lbfgsb      # LBFGSBProblem, LBFGSBWorkspace
 com.curioloop.yum4j.optim.slsqp       # SLSQPProblem, SLSQPWorkspace
@@ -61,6 +65,8 @@ Typical import for optimization:
 ```java
 import com.curioloop.yum4j.optim.*;
 import com.curioloop.yum4j.optim.cmaes.*;
+import com.curioloop.yum4j.optim.de.*;
+import com.curioloop.yum4j.optim.da.*;
 import com.curioloop.yum4j.optim.subplex.*;
 import com.curioloop.yum4j.optim.lbfgsb.*;
 import com.curioloop.yum4j.optim.slsqp.*;
@@ -111,6 +117,48 @@ Optimization r3 = Minimizer.cmaes()
     .maxEvaluations(100000)
     .bounds(Bound.between(-5, 5), Bound.between(-5, 5))
     .solve();
+```
+
+### Differential Evolution (bounded derivative-free global optimization)
+
+```java
+import com.curioloop.yum4j.optim.*;
+import com.curioloop.yum4j.optim.de.*;
+
+// SciPy-style DE: finite bounds, named mutation/crossover strategy, optional polish
+Optimization r = Minimizer.de()
+    .objective((x, n) -> x[0]*x[0] + x[1]*x[1])
+    .bounds(Bound.between(-5, 5), Bound.between(-5, 5))
+    .strategy(EvolutionStrategy.BEST1BIN)
+    .initialization(PopulationInit.LATIN_HYPERCUBE)
+    .maxIterations(1000)
+    .random(new Random(42))
+    .solve();
+
+// Reuse workspace for repeated solves
+DEProblem problem = Minimizer.de().objective(fn).bounds(bounds).deferredUpdating(true);
+DEWorkspace ws = DEProblem.workspace();
+Optimization reused = problem.solve(ws);
+```
+
+### Dual Annealing (bounded generalized annealing + local search)
+
+```java
+import com.curioloop.yum4j.optim.*;
+import com.curioloop.yum4j.optim.da.*;
+
+// Generalized simulated annealing with default L-BFGS-B local search
+Optimization r = Minimizer.da()
+    .objective((x, n) -> x[0]*x[0] + x[1]*x[1])
+    .bounds(Bound.between(-5, 5), Bound.between(-5, 5))
+    .initialTemperature(5230.0)
+    .visit(2.62)
+    .accept(-5.0)
+    .random(new Random(42))
+    .solve();
+
+// Disable local search for pure generalized simulated annealing
+Optimization globalOnly = Minimizer.da().objective(fn).bounds(bounds).localSearch(null).solve();
 ```
 
 ### Derivative-free optimization (Subplex / Nelder-Mead)
@@ -225,6 +273,8 @@ RootFinder.hybr(fn, 2).jacobian(NumericalJacobian.CENTRAL).initialPoint(1.0, 1.0
 
 ```java
 Minimizer.cmaes()    // → CMAESProblem (derivative-free global, CMA-ES)
+Minimizer.de()       // → DEProblem (bounded differential evolution global optimizer)
+Minimizer.da()       // → DAProblem (bounded dual annealing global optimizer)
 Minimizer.subplex()  // → SubplexProblem (derivative-free)
 Minimizer.lbfgsb()   // → LBFGSBProblem
 Minimizer.slsqp()    // → SLSQPProblem
@@ -279,6 +329,53 @@ RestartMode.bipop(maxRestarts)                     // BIPOP: alternate large/sma
 | `mat` | 2n² | C · B (null in SEP_CMA mode) |
 
 In SEP_CMA mode, `mat`, `ctmpBuf` and `eigenWork` are not allocated, reducing memory from O(n²) to O(nλ).
+
+### DEProblem (Differential Evolution bounded global optimizer)
+
+```java
+Minimizer.de()
+    .objective(Univariate.Objective)         // no gradient needed
+    .bounds(Bound...)                        // required finite lower and upper bounds
+    .strategy(EvolutionStrategy)             // BEST1BIN default; rand/best/current-to-best, bin/exp variants
+    .strategy(TrialStrategy)                 // custom trial-vector generator
+    .initialization(PopulationInit)          // LATIN_HYPERCUBE default; RANDOM, SOBOL, HALTON
+    .initialPopulation(double[][])           // explicit population; clipped/projected to bounds
+    .integrality(boolean...)                 // integer coordinates; disables final polish
+    .equalityConstraints(Univariate.Objective...)   // h(x) = 0
+    .inequalityConstraints(Univariate.Objective...) // c(x) >= 0
+    .deferredUpdating(boolean)               // true for batch/deferred replacement
+    .evaluator(DEEvaluator)                  // custom batch/parallel evaluator; forces deferred updating
+    .popsize(int) / .populationSize(int)     // population sizing
+    .mutation(Bound)                         // differential weight F; fixed or dithering interval in [0,2)
+    .recombination(double)                   // crossover probability CR in [0,1]
+    .polisher(FinalPolisher)                 // default auto L-BFGS-B/SLSQP; use FinalPolisher.none() to skip
+    .maxIterations(int)
+    .maxEvaluations(int)
+    .random(Random)
+    .solve()                                 // → Optimization
+```
+
+Built-in `EvolutionStrategy` values: `BEST1BIN`, `BEST1EXP`, `RAND1BIN`, `RAND1EXP`, `RAND2BIN`, `RAND2EXP`, `BEST2BIN`, `BEST2EXP`, `RAND_TO_BEST1BIN`, `RAND_TO_BEST1EXP`, `CURRENT_TO_BEST1BIN`, `CURRENT_TO_BEST1EXP`.
+
+### DAProblem (Dual Annealing bounded global optimizer)
+
+```java
+Minimizer.da()
+    .objective(Univariate.Objective)         // no gradient needed
+    .bounds(Bound...)                        // required finite lower and upper bounds
+    .initialPoint(double...)                 // optional bounded starting point
+    .initialTemperature(double)              // default 5230.0
+    .restartTemperatureRatio(double)         // reannealing threshold ratio, default 2e-5
+    .visit(double)                           // visiting distribution parameter in (1,3], default 2.62
+    .accept(double)                          // generalized acceptance parameter in (-10000,-5], default -5
+    .localSearch(LocalSearch)               // default LocalSearch.lbfgsb(); null = pure GSA
+    .localSearchMaxIterations(int)
+    .hook(SearchHook)                        // called when a new global best is found
+    .maxIterations(int)
+    .maxEvaluations(int)
+    .random(Random)
+    .solve()                                 // → Optimization
+```
 
 ### SubplexProblem (Subplex derivative-free, Rowan 1990)
 

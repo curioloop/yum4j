@@ -4,6 +4,8 @@
 package com.curioloop.yum4j.optim;
 
 import com.curioloop.yum4j.optim.cmaes.CMAESProblem;
+import com.curioloop.yum4j.optim.de.DEProblem;
+import com.curioloop.yum4j.optim.da.DAProblem;
 import com.curioloop.yum4j.optim.lbfgsb.LBFGSBProblem;
 import com.curioloop.yum4j.optim.subplex.SubplexProblem;
 import com.curioloop.yum4j.optim.slsqp.SLSQPProblem;
@@ -223,5 +225,31 @@ public abstract class Minimizer<O, W, S extends Minimizer<O, W, S>> implements P
      */
     public static CMAESProblem cmaes() {
         return new CMAESProblem();
+    }
+
+    /**
+     * Creates a {@link DEProblem} for bounded derivative-free global optimization.
+     *
+     * <p>Differential evolution evolves a finite population by scaled population differences,
+     * crossover, greedy selection, and optional L-BFGS-B polishing. Finite lower and upper
+     * bounds are required for every variable.</p>
+     *
+     * @return new {@link DEProblem} builder
+     */
+    public static DEProblem de() {
+        return new DEProblem();
+    }
+
+    /**
+     * Creates a {@link DAProblem} for bounded derivative-free global optimization.
+     *
+     * <p>Dual annealing uses a generalized simulated annealing visiting distribution,
+     * Metropolis-style acceptance, re-annealing, and optional L-BFGS-B local search.
+     * Finite lower and upper bounds are required for every variable.</p>
+     *
+     * @return new {@link DAProblem} builder
+     */
+    public static DAProblem da() {
+        return new DAProblem();
     }
 }

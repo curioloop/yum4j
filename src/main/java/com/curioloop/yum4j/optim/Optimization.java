@@ -88,6 +88,10 @@ public value record Optimization(
         CHI_SQUARED_TOLERANCE_REACHED(7, true,
             "Converged: chi-squared reduction below tolerance", null),
 
+        /** Hook requested early termination */
+        USER_REQUESTED_STOP(8, true,
+            "Stopped: hook requested termination", null),
+
         /** Abnormal termination */
         ABNORMAL_TERMINATION(-1, false,
             "Abnormal termination due to internal error",

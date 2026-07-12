@@ -13,7 +13,7 @@ The name is intentionally simple: **Yet Useful Math**. The useful parts include:
 
 ## Features
 
-- **Optimization solvers**: CMA-ES, Subplex, L-BFGS-B, SLSQP, and Trust Region Reflective nonlinear least squares
+- **Optimization solvers**: CMA-ES, Differential Evolution, Dual Annealing, Subplex, L-BFGS-B, SLSQP, and Trust Region Reflective nonlinear least squares
 - **Root finding**: Brentq (1-D), HYBR and Broyden (N-D) via `RootFinder`
 - **Numerical integration**: adaptive GK15, fixed Gauss-Legendre, double-exponential (tanh-sinh / exp-sinh / sinh-sinh), oscillatory, improper, endpoint-singular, Cauchy principal value, Filon, and sampled-data quadrature via `Integrator`
 - **ODE solvers**: adaptive explicit RK (RK23, RK45, DOP853) and implicit stiff solvers (BDF, Radau IIA) with dense output, event detection, and workspace reuse via `Integrator.ode()`
@@ -74,6 +74,49 @@ Optimization result3 = Minimizer.cmaes()
     .restartMode(RestartMode.ipop(9, 2))
     .maxEvaluations(100000)
     .bounds(Bound.between(-5, 5), Bound.between(-5, 5))
+    .solve();
+```
+
+### Bounded Global Optimization (Differential Evolution)
+
+```java
+// SciPy-style DE with finite bounds, population strategies, and optional polishing
+Optimization result = Minimizer.de()
+    .objective((x, n) -> x[0]*x[0] + x[1]*x[1])
+    .bounds(Bound.between(-5, 5), Bound.between(-5, 5))
+    .strategy(EvolutionStrategy.BEST1BIN)
+    .initialization(PopulationInit.LATIN_HYPERCUBE)
+    .random(new Random(42))
+    .solve();
+
+// Batch-friendly deferred updating with a reusable workspace
+DEProblem problem = Minimizer.de()
+    .objective(fn)
+    .bounds(bounds)
+    .deferredUpdating(true)
+    .popsize(12);
+DEWorkspace workspace = DEProblem.workspace();
+Optimization reused = problem.solve(workspace);
+```
+
+### Bounded Global Optimization (Dual Annealing)
+
+```java
+// Generalized simulated annealing plus optional L-BFGS-B local search
+Optimization result = Minimizer.da()
+    .objective((x, n) -> x[0]*x[0] + x[1]*x[1])
+    .bounds(Bound.between(-5, 5), Bound.between(-5, 5))
+    .initialTemperature(5230.0)
+    .visit(2.62)
+    .accept(-5.0)
+    .random(new Random(42))
+    .solve();
+
+// Pure generalized simulated annealing without the local minimizer
+Optimization globalOnly = Minimizer.da()
+    .objective(fn)
+    .bounds(bounds)
+    .localSearch(null)
     .solve();
 ```
 
@@ -528,6 +571,8 @@ For advanced usage (custom scaling, sign conventions, multi-dimensional, Hartley
 
 ```java
 Minimizer.cmaes()    // → CMAESProblem (CMA-ES global optimizer)
+Minimizer.de()       // → DEProblem (differential evolution global optimizer)
+Minimizer.da()       // → DAProblem (dual annealing global optimizer)
 Minimizer.subplex()  // → SubplexProblem (Nelder-Mead)
 Minimizer.lbfgsb()   // → LBFGSBProblem
 Minimizer.slsqp()    // → SLSQPProblem

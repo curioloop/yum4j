@@ -204,7 +204,7 @@ public final class LambertW {
     private static double refine(double z, double guess, boolean principalBranch) {
         double lower = principalBranch ? -1.0 : lowerBracketWm1(z, guess);
         double upper = principalBranch ? upperBracketW0(z) : -1.0;
-        double w = clamp(guess, lower, upper);
+        double w = Math.clamp(guess, lower, upper);
 
         for (int iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
             double expW = Math.exp(w);
@@ -289,7 +289,4 @@ public final class LambertW {
         return evaluatePolynomial(SINGULARITY_COEFFICIENTS, p);
     }
 
-    private static double clamp(double value, double lower, double upper) {
-        return Math.max(lower, Math.min(upper, value));
-    }
 }
